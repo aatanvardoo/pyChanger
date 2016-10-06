@@ -11,14 +11,52 @@ bmForwPush =[0xF0, 0x04, 0x68, 0x48, 0x00, 0xD4]
 bmForwRel = [0xF0, 0x04, 0x68, 0x48, 0x80, 0x54]
 bmForwPress = [0xF0, 0x04, 0x68, 0x48, 0x40, 0x94]
 
+#info/status request
+statReq = "\x68\x05\x18\x38\x00\x00\x4d"
 
-def handleIbusMessage(message,ser):
+#analyze fields
+
+
+stopPlayingReq = "\x68\x05\x18\x38\x01\x00\x4c"
+stopPlayingResp= "\x18\x0a\x68\x39\x00\x02\x00\x01\x00\x01\x04\x45"
+
+pausePlayingReq = "\x68\x05\x18\x38\x02\x00\x4f"
+pasuePlayingResp = "\x18\x0a\x68\x39\x01\x0c\x00\x01\x00\x01\x04\x4a"
+
+startPlayReq = "\x68\x05\x18\x38\x03\x00\x4e"
+startPlayResp= "\x18\x0a\x68\x39\x02\x09\x00\x01\x00\x01\x04\x4c"
+
+cdChangeReq = "\x68\x05\x18\x38\x06"
+#def handleStatusReq(ser):
+    #lest assum it is always playing
+    #to be done play or no...
     
+def handleIbusMessage(message,ser):
+    prefix = "Got message: "
     if message == yatourPoll:
         print("Got message from Yatour") 
         ser.serialDev.write(cdpoll)
         ser.serialDev.write(cdstart)
         
+    elif message == statReq:
+        print(prefix + "staus/info request")
+        ser.serialDev.write(startPlayResp)   
+        
+    elif message == stopPlayingReq:
+        print(prefix + "stop request") 
+        ser.serialDev.write(stopPlayingResp) 
+        
+    elif message == pausePlayingReq:  
+        print(prefix + "pause request") 
+        ser.serialDev.write(pasuePlayingResp)
+        
+    elif message == startPlayReq:
+        print(prefix + "start request") 
+        ser.serialDev.write(startPlayResp)
+        
+    elif message == cdChangeReq:
+        print(prefix + "CD change request") 
+        ser.serialDev.write(startPlayResp)
     elif message == bmForwPush:
         print("Got message from bmForwPush")
     elif message == bmForwRel:
