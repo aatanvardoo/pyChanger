@@ -1,42 +1,60 @@
 
 from serialConnection import SerialPort
 import time
+import threading
 
 current_milli_time = lambda: int(round(time.time() * 1000))
-phoneLed="\x80\x04\x3B\x11\x03\xAD"
+isPoolNeeded = True
+phoneLed1="\xC8\x04\xF0\x2B\x54\x43"
+phoneLed2= "\xC8\x04\xF0\x2B\x01\x16"
+
 cdstart = "\x68\x12\x3b\x23\x62\x10\x43\x44\x43\x20\x31\x2d\x30\x34\x20\x20\x20\x20\x20\x4c"
-cdpoll = "\x68\x03\x18\x01\x72"
+cdpoll = [0x68,0x03,0x18,0x01,0x72]
+cdpollTest = "\x68\x03\x18\x01\x72"
 yatourPoll=[255, 4, 255, 2, 0, 6]
 bmForwPush =[0xF0, 0x04, 0x68, 0x48, 0x00, 0xD4] 
 bmForwRel = [0xF0, 0x04, 0x68, 0x48, 0x80, 0x54]
 bmForwPress = [0xF0, 0x04, 0x68, 0x48, 0x40, 0x94]
 
 #info/status request
-statReq = "\x68\x05\x18\x38\x00\x00\x4d"
+statReq = [0x68,0x05,0x18,0x38,0x00,0x00,0x4d]
 
-#analyze fields
+#announcement message
+announcementReq = "\x18\x04\xFF\x02\x01\xE0"
 
+radioPollReq = "\x18\x04\xFF\x02\x00\xE1"
 
-stopPlayingReq = "\x68\x05\x18\x38\x01\x00\x4c"
+stopPlayingReq = [0x68,0x05,0x18,0x38,0x01,0x00,0x4c]
 stopPlayingResp= "\x18\x0a\x68\x39\x00\x02\x00\x01\x00\x01\x04\x45"
 
-pausePlayingReq = "\x68\x05\x18\x38\x02\x00\x4f"
+pausePlayingReq = [0x68,0x05,0x18,0x38,0x02,0x00,0x4f]
 pasuePlayingResp = "\x18\x0a\x68\x39\x01\x0c\x00\x01\x00\x01\x04\x4a"
 
-startPlayReq = "\x68\x05\x18\x38\x03\x00\x4e"
+startPlayReq = [0x68,0x05,0x18,0x38,0x03,0x00,0x4e]
 startPlayResp= "\x18\x0a\x68\x39\x02\x09\x00\x01\x00\x01\x04\x4c"
 
-cdChangeReq = "\x68\x05\x18\x38\x06"
+cdChangeReq = [0x68,0x03,0x18,0x38,0x06]
+
+trackChangeReq = [0x68,0x04,0x18,0x38,0x0a,0x4D]
+trackChangeReqtemp = [0x68,0x04, 0x18, 0x38, 0x0a, 0x4D]
 #def handleStatusReq(ser):
     #lest assum it is always playing
     #to be done play or no...
     
+
+    
 def handleIbusMessage(message,ser):
+    global isPoolNeeded
     prefix = "Got message: "
-    if message == yatourPoll:
-        print("Got message from Yatour") 
-        ser.serialDev.write(cdpoll)
-        ser.serialDev.write(cdstart)
+    
+    #if message == yatourPoll:
+    #    print(prefix + "Poll req") 
+    #    ser.serialDev.write(cdpoll)
+    
+    if message == cdpoll:
+        isPoolNeeded = False
+        print(prefix + "Radio poll req") 
+        ser.serialDev.write(radioPollReq)
         
     elif message == statReq:
         print(prefix + "staus/info request")
@@ -57,6 +75,11 @@ def handleIbusMessage(message,ser):
     elif message == cdChangeReq:
         print(prefix + "CD change request") 
         ser.serialDev.write(startPlayResp)
+        
+    elif message == trackChangeReq:
+        print(prefix + "Track change request") 
+        ser.serialDev.write(startPlayResp)
+        
     elif message == bmForwPush:
         print("Got message from bmForwPush")
     elif message == bmForwRel:
@@ -69,6 +92,15 @@ def hexPrit(message, length):
     for i in range(length):
         temp[i]=hex(message[i])
     return str(temp)
+
+#Timer to announce CD every 25-30 s
+def announceCallback():
+    global isPoolNeeded
+    if isPoolNeeded == True:
+        print("Hey Im a CD changer! " + time.ctime())
+        serialP.serialDev.write(announcementReq)
+    threading.Timer(25, announceCallback).start()
+
 def checkSumCalculator(message, length):
     #print("Checksum calculator starts for", str(message) )
     
@@ -82,19 +114,31 @@ def checkSumCalculator(message, length):
         #print( "Hurra checksum match")
         return True
     else:
-        print( "Uuuu checksum failed",str(suma), str(message[length]), str(length))
+        print (str(length))
+        print( "Uuuu checksum failed",str(suma), str(message[length-1]), str(length))
         return False
         
 ibusbuff=[0 for i in range(64)]
 ibusPos = 0
+serialP = SerialPort()
 def main():
     global ibusbuff
     global ibusPos
     print("Dziala!")
     
-    serialP = SerialPort()
+
     timeNow = current_milli_time()
     lastTime = timeNow
+    cdpoll
+
+
+    serialP.serialDev.write(phoneLed1)
+    time.sleep(1)
+    serialP.serialDev.write(phoneLed2)
+    serialP.serialDev.flushInput()
+    announceCallback();
+    
+
     while True:
         n = serialP.serialDev.inWaiting()
         if n != 0:
@@ -120,7 +164,7 @@ def main():
                     
                     handleIbusMessage(ibusbuff[0:ibusPos],serialP)
                 else:
-                    print('I read from ibus ERROR'  + str(ibusbuff[0:ibusPos]) + " length " + str(ibusPos))
+                    print('I read from ibus ERROR'  + hexPrit(ibusbuff[0:ibusPos],ibusPos) + " length " + str(ibusPos))
                 ibusPos = 0
 
 if __name__ == "__main__":

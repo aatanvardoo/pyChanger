@@ -9,7 +9,7 @@ class SerialPort:
             self.serialDev = serial.Serial(
                            port=self.serialName,
                            baudrate=9600, 
-                           parity=serial.PARITY_ODD, 
+                           parity=serial.PARITY_EVEN, 
                            stopbits=serial.STOPBITS_ONE,
                            bytesize=serial.EIGHTBITS,
                            timeout = 1,
