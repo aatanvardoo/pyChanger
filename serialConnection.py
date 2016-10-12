@@ -5,6 +5,7 @@ import time
 class SerialPort:
     def __init__(self):
         try:
+            print("Trying to open USB")
             self.serialName = '/dev/ttyUSB0'
             self.serialDev = serial.Serial(
                            port=self.serialName,
