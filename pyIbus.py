@@ -1,38 +1,57 @@
-#from serialConnection import SerialPort
+from serialConnection import SerialPort
 import serialConnection
 import time
 import threading
 
+#test
+statReqTest =          "\x68\x05\x18\x38\x00\x00\x4d"
+cdpollTest =           "\x68\x03\x18\x01\x72"
+stopPlayingReqTest =   "\x68\x05\x18\x38\x01\x00\x4c"
+pausePlayingReqTest =  "\x68\x05\x18\x38\x02\x00\x4f"
+startPlayReqTest    =  "\x68\x05\x18\x38\x03\x00\x4e"
+cdChangeReqTest =      "\x68\x05\x18\x38\x06\x01\x4a"
+cdPrevReqTest =        "\x68\x05\x18\x38\x0a\x01\x46"
+cdNextReqTest =        "\x68\x05\x18\x38\x0a\x00\x47"
+trackChangeReqTest =   "\x68\x04\x18\x38\x0a\x4D" #weryfy if that is neccesarryyyy!!!!!!!!!!!!
+bmForwPushTest =       "\xF0\x04\x68\x48\x00\xD4" 
+bmForwRelTest =        "\xF0\x04\x68\x48\x80\x54"
+bmForwPress =          "\xF0\x04\x68\x48\x40\x94"
+
+trackChangeNextReqTest = "\x68\x05\x18\x38\x0a\x00\x47" #Changes track/song to next
+trackChangePrevReqTest = "\x68\x05\x18\x38\x0a\x01\x46" #Changes track/song to next
+
+testMessages = [cdChangeReqTest, trackChangePrevReqTest]
 #announcement message
-announcementReq = "\x18\x04\xFF\x02\x01\xE0"
-cdpoll = "\x68\x03\x18\x01\x72"
+announcementReq = [0x18,0x04,0xFF,0x02,0x01,0xE0]
+
 #info/status request
-statReq = "\x68\x05\x18\x38\x00\x00\x4d"
-radioPollReq = "\x18\x04\xFF\x02\x00\xE1"
+
+radioPollReq = [0x18,0x04,0xFF,0x02,0x00,0xE1]
 startPlayResp= "\x18\x0a\x68\x39\x02\x09\x00\x01\x00\x01\x04\x4c"
-stopPlayingReq = "\x68\x05\x18\x38\x01\x00\x4c"
+stopPlayingReq = [0x68,0x05,0x18,0x38,0x01,0x00,0x4c]
 stopPlayingResp= "\x18\x0a\x68\x39\x00\x02\x00\x01\x00\x01\x04\x45"
-pausePlayingReq = "\x68\x05\x18\x38\x02\x00\x4f"
+pausePlayingReq = [0x68,0x05,0x18,0x38,0x02,0x00,0x4f]
 pasuePlayingResp = "\x18\x0a\x68\x39\x01\x0c\x00\x01\x00\x01\x04\x4a"
-startPlayReq = "\x68\x05\x18\x38\x03\x00\x4e"
-cdChangeReq = "\x68\x03\x18\x38\x06"
-trackChangeReq = "\x68\x04\x18\x38\x0a\x4D"
+startPlayReq =   [0x68,0x05,0x18,0x38,0x03,0x00,0x4e]
+cdChangeReq =    [0x68, 0x05, 0x18, 0x38, 0x06, 0xFF, 0xff]
+trackChangeNextReq = [0x68,0x05,0x18,0x38,0x0a,0x00,0x47] #Changes track/song to next
+trackChangePrevReq = [0x68,0x05,0x18,0x38,0x0a,0x01,0x46] #Changes track/song to next
+endPlayingResp =  "\x18\x0a\x68\x39\x01\x0c\x00\x01\x00\x01\x04\x4a"
 
-cdPrevReq = "\x68\x05\x18\x38\x0a\x01\x46"
-cdNextReq = "\x68\x05\x18\x38\x0a\x00\x47"
-
-bmForwPush =[0xF0, 0x04, 0x68, 0x48, 0x00, 0xD4] 
-bmForwRel = [0xF0, 0x04, 0x68, 0x48, 0x80, 0x54]
+statReq =     [0x68,0x05,0x18,0x38,0x00,0x00,0x4d]
+cdpoll =      [0x68,0x03,0x18,0x01,0x72]
+bmForwPush =  [0xF0, 0x04, 0x68, 0x48, 0x00, 0xD4] 
+bmForwRel =   [0xF0, 0x04, 0x68, 0x48, 0x80, 0x54]
 bmForwPress = [0xF0, 0x04, 0x68, 0x48, 0x40, 0x94]
-yatourPoll= [255, 4, 255, 2, 0, 6]
+yatourPoll=   [255, 4, 255, 2, 0, 6]
 ibusbuff=[]
 ibusPos = 0
 class Ibus(serialConnection.SerialPort):
-
+    cdNumber = 0
     #Timer to announce CD every 25-30 s
     def announceCallback(self):
         print("Hey Im a CD changer! " + time.ctime())
-        self.serialDev.write(announcementReq)
+        self.sendIbus(announcementReq)
         threading.Timer(25, self.announceCallback).start()
     
     def checkSumCalculator(self, message, length):
@@ -48,9 +67,13 @@ class Ibus(serialConnection.SerialPort):
             #print( "Hurra checksum match")
             return True
         else:
-            print( "Uuuu checksum failed",str(suma), str((message[length-1])), str(length))
+            print( "Uuuu checksum failed " + "calculated: " + str(hex(suma)) + " expected " + str(hex(message[length-1])) + " length " + str(length))
             return False
-        
+    def sendIbus(self,message):
+        if hasattr(self, 'serialDev'):  
+            self.serialDev.write(bytes(message)) 
+        else:
+            print("Serial in NOT opened " + self.serialName)
     def receiveIbusMessages(self, bytesRead):
         global ibusPos
         global ibusbuff
@@ -59,14 +82,14 @@ class Ibus(serialConnection.SerialPort):
             if  length == bytesRead:
                 print("Only one message")
                 if self.checkSumCalculator(ibusbuff[0:bytesRead], bytesRead):
-                    #print('I read from ibus' + hexPrint(ibusbuff[0:bytesRead], bytesRead) + " length " + str(bytesRead))
+                    print('I read from ibus' + self.hexPrint(ibusbuff[0:bytesRead], bytesRead) + " length " + str(bytesRead))
                     
                     #handle message in corrrect way
                     self.handleIbusMessage(ibusbuff[0:bytesRead])
                     ibusbuff[0:bytesRead] = [] #cleaning arrays
                     ibusPos = ibusPos - bytesRead
                 else:
-                    print('I read from ibus ERROR'  + self.hexPrint(ibusbuff[0:bytesRead]) + " length " + str(bytesRead))
+                    print('I read from ibus ERROR'  + self.hexPrint(ibusbuff[0:bytesRead],bytesRead) + " length " + str(bytesRead))
     
                     
             elif bytesRead > 8 :
@@ -76,7 +99,7 @@ class Ibus(serialConnection.SerialPort):
                 for i in range(5):
                     print(msgLenIndx)
                     length = (ibusbuff[msgLenIndx]) + 2 #message length is saved on second index but whole message has two more fields
-                    print("bytesread: " + str(bytesRead) + " length " + str(length) +  " i "+str(i))
+                    print(self.hexPrint(ibusbuff, len(ibusbuff) ) + "bytesread: " + str(bytesRead) + " length " + str(length) +  " i "+str(i))
                     if self.checkSumCalculator(ibusbuff[msgStartIdx:bytesRead],length):
                         #print('I read from ibus more than one ' + hexPrint(ibusbuff[msgStartIdx:bytesRead], length) + " length " + str(length -2))
                         
@@ -101,7 +124,7 @@ class Ibus(serialConnection.SerialPort):
         if n != 0:
 
             out = self.serialDev.read(n)
-            out = map(ord,out)
+            #out = map(ord,out)
             ibusbuff.extend(out)
             ibusPos = ibusPos + n
             if ibusPos >= 64:
@@ -116,47 +139,53 @@ class Ibus(serialConnection.SerialPort):
             
     def handleIbusMessage(self,message):
         prefix = "Got message: "
-        print('I read from ibus' + self.hexPrint(message,len(message)) + " length: " + str(len(message)) )
+        print('I read from ibus' + self.hexPrint(message,len(message)) + " length: " + str(len(message)) + "    ", end="" )
 
         if message == cdpoll:
             print(prefix + "Radio poll req") 
-            self.serialDev.write(radioPollReq)
+            self.sendIbus(radioPollReq)
             
         if message == yatourPoll:
             print(prefix + "Poll req") 
-            self.serialDev.write(cdpoll)
+            self.sendIbus(cdpoll)
+            
         elif message == statReq:
             print(prefix + "staus/info request")
-            self.serialDev.write(startPlayResp)   
+            self.sendIbus(startPlayResp)
             
         elif message == stopPlayingReq:
             print(prefix + "stop request") 
-            self.serialDev.write(stopPlayingResp) 
+            self.sendIbus(stopPlayingResp) 
             
         elif message == pausePlayingReq:  
             print(prefix + "pause request") 
-            self.serialDev.write(pasuePlayingResp)
+            self.sendIbus(pasuePlayingResp)
             
         elif message == startPlayReq:
             print(prefix + "start request") 
-            self.serialDev.write(startPlayResp)
+            self.sendIbus(startPlayResp)
             
-        elif message == cdChangeReq:
-            print(prefix + "CD change request") 
-            self.serialDev.write(startPlayResp)
+            #here some of message prameters may vary so only static part is compared
+        elif message[0:5] == cdChangeReq[0:5]:
+            #extracting parameters
+            self.cdNumber = message[5]
+            print(prefix + "CD change request. Cd to load: " + str(self.cdNumber) ) 
+                #cdstatus = CD_STATUS_END_PLAYING;
+                #send_cdstatus();
+                #cdstatus = CD_STATUS_PLAYING;
+                #send_cdstatus();
+            self.sendIbus(startPlayResp)
             
-        elif message == cdPrevReq:
-            print(prefix + "CD previous request") 
-            self.serialDev.write(startPlayResp)
+        elif message == trackChangePrevReq:
+            print(prefix + "Track previous request") 
+            self.sendIbus(startPlayResp)
            
-        elif message == cdNextReq:
-            print(prefix + "CD Next request") 
-            self.serialDev.write(startPlayResp)    
+        elif message == trackChangeNextReq:
+            print(prefix + "Track next request") 
+            self.sendIbus(startPlayResp)    
             
-        elif message == trackChangeReq:
-            print(prefix + "Track change request") 
-            self.serialDev.write(startPlayResp)
-            
+         
+           
         elif message == bmForwPush:
             print("Got message from bmForwPush")
         elif message == bmForwRel:
@@ -170,3 +199,39 @@ class Ibus(serialConnection.SerialPort):
         for i in range(length):
             temp[i]=hex((message[i]))
         return str(temp)
+    
+    
+    
+    def receiveTest(self):
+        global ibusPos
+        global ibusbuff
+        n = 1
+        if n != 0:
+            for msg in range(len(testMessages)):
+                for i in range(0,len(testMessages[msg]),n):
+                    out = testMessages[msg][i]
+                    out = map(ord,out)
+                    ibusbuff.extend(out)
+                    ibusPos = ibusPos + n
+                    if ibusPos >= 64:
+                        ibusPos = 0
+                    #print("Received" + str(ibusbuff))        
+                    #if timeNow - lastTime > 5 :
+                    #    ibusPos = 0
+                    #    print "Timeout"
+                        
+                    #lastTime = timeNow
+                    self.receiveIbusMessages(ibusPos)
+                
+                
+                
+import unittest
+
+class IbusUt(unittest.TestCase):
+    def test_uno(self):
+        print("Im a test")
+    
+    
+    
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

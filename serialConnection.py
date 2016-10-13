@@ -19,19 +19,8 @@ class SerialPort:
                            dsrdtr = False,
                            writeTimeout = 2)
         except SerialException as e:
-            print str(e)
-            
-    def receiveWithTimout(self,timeout = 3):
-        timeout = time.time() + timeout #3sec timeout
-        while 1:
-            n = self.serialDev.inWaiting()
-            if n != 0:
-                out = self.serialDev.read(n)
-                debug.DebugPrint('I read '  + out.encode("hex") + " length " + str(n))
-                return out
-            if time.time() > timeout:
-                print "Timeout"
-                break
+            print (e)
+        
             
         
         
