@@ -4,7 +4,7 @@ from pyIbus import Ibus
 import time
 import threading
 import pyIbus
-current_milli_time = lambda: int(round(time.time() * 1000))
+
 isPoolNeeded = True
 phoneLed1=[0xC8,0x04,0xF0,0x2B,0x54,0x43]
 yellowLed = "\xC8\x04\xF0\x2B\x32\x25"
@@ -19,9 +19,6 @@ def main():
     print("Dziala!")
     ibusDev = Ibus() 
 
-    timeNow = current_milli_time()
-    lastTime = timeNow
-
     ibusDev.announceCallback()
     ibusDev.sendIbus(phoneLed1)
     time.sleep(1)
@@ -29,7 +26,6 @@ def main():
     ibusDev.serialDev.flushInput()
 
     while True:
-        a=1
         ibusDev.receive()
                 
 
