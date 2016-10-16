@@ -1,4 +1,4 @@
-
+import uinput
 from serialConnection import SerialPort
 from pyIbus import Ibus
 import time
@@ -7,26 +7,55 @@ import pyIbus
 
 isPoolNeeded = True
 phoneLed1=[0xC8,0x04,0xF0,0x2B,0x54,0x43]
-yellowLed = "\xC8\x04\xF0\x2B\x32\x25"
-phoneLed2= [0xC8,0x04,0xF0,0x2B,0x01,0x16]
+phoneLedRed= [0xC8,0x04,0xF0,0x2B,0x01]
+phoneLedGreen = [0xC8,0x04,0xF0,0x2B,0x10]
+phoneLedYellow= [0xC8,0x04,0xF0,0x2B,0x04]
+status = [0x68, 0x5, 0x18, 0x38, 0x0, 0x0, 0x4d]
+# Define a function for the thread
+def print_time():
 
-cdstart = "\x68\x12\x3b\x23\x62\x10\x43\x44\x43\x20\x31\x2d\x30\x34\x20\x20\x20\x20\x20\x4c"
+    while True:
+        time.sleep(0.005)
+        #print("OK")
+        ibusDev.sendIbus(phoneLed1)
 
-
+def stat():
+    while True:
+        time.sleep(5)
+        #print("OK")
+        ibusDev.sendIbus(status)
+ibusDev = Ibus() 
 def main():
     global ibusbuff
     global ibusPos
     print("Dziala!")
-    ibusDev = Ibus() 
 
-    ibusDev.announceCallback()
-    ibusDev.sendIbus(phoneLed1)
-    time.sleep(1)
-    ibusDev.sendIbus(phoneLed2)
+
+    ibusDev.sendIbusAndAddChecksum(phoneLedYellow)
+    time.sleep(0.5)
+    ibusDev.sendIbusAndAddChecksum(phoneLedRed)
+    time.sleep(0.5)
+    ibusDev.sendIbusAndAddChecksum(phoneLedGreen)
     ibusDev.serialDev.flushInput()
+    
+    #t = threading.Thread(target=print_time)
+
+    #t.start()
+    
+    t = threading.Thread(target=stat)
+
+    t.start()
+    #ibusDev.announceCallback()
+    #device = uinput.Device([
+#        uinput.KEY_COMMA,
+
+ #       uinput.KEY_DOT
+  #      ])
+
+    #device.emit_click(uinput.KEY_DOT)
 
     while True:
-        ibusDev.receive()
+        ibusDev.receiveOpt()
                 
 
 if __name__ == "__main__":

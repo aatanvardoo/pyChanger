@@ -2,8 +2,9 @@ from serialConnection import SerialPort
 import serialConnection
 import time
 import threading
-
+import uinput
 #test
+yatourPollTest =       "\xff\x04\xff\x02\x00\x06"
 statReqTest =          "\x68\x05\x18\x38\x00\x00\x4d"
 cdpollTest =           "\x68\x03\x18\x01\x72"
 stopPlayingReqTest =   "\x68\x05\x18\x38\x01\x00\x4c"
@@ -16,7 +17,8 @@ trackChangeReqTest =   "\x68\x04\x18\x38\x0a\x4D" #weryfy if that is neccesarryy
 bmForwPushTest =       "\xF0\x04\x68\x48\x00\xD4" 
 bmForwRelTest =        "\xF0\x04\x68\x48\x80\x54"
 bmForwPress =          "\xF0\x04\x68\x48\x40\x94"
-current_milli_time = lambda: int(round(time.time()))
+current_sec_time = lambda: int(round(time.time()))
+current_milli_time = lambda: int(round(time.time() * 1000))
 trackChangeNextReqTest = "\x68\x05\x18\x38\x0a\x00\x47" #Changes track/song to next
 trackChangePrevReqTest = "\x68\x05\x18\x38\x0a\x01\x46" #Changes track/song to next
 
@@ -26,7 +28,7 @@ introModeReqTest =    "\x68\x05\x18\x38\x07\x01\x4b"
 
 scanTrackReqForwTest = "\x68\x05\x18\x38\x04\x00\x49"
 scanTrackReqBckTest =  "\x68\x05\x18\x38\x04\x01\x48"
-testMessages = "\x32\x10\xbe\xf0\x03\x68\x01\x9a\xf0\x04\x68\x32"
+testMessages = scanTrackReqForwTest + bmForwPress + statReqTest+ scanTrackReqForwTest +scanTrackReqForwTest + statReqTest+ scanTrackReqForwTest+ scanTrackReqForwTest+scanTrackReqForwTest
 #announcement message
 announcementReq = [0x18,0x04,0xFF,0x02,0x01,0xE0]
 
@@ -47,13 +49,13 @@ endPlayingResp =  "\x18\x0a\x68\x39\x01\x0c\x00\x01\x00\x01\x04\x4a"
 randomModeReq = [0x68, 0x5, 0x18, 0x38, 0x08, 0xFF, 0xFF]
 introModeReq =  [0x68, 0x5, 0x18, 0x38, 0x07, 0xFF, 0xFF]
 
-scanTrackReq = [0x68, 0x5, 0x18, 0x38, 0x04, 0xFF, 0xFF]
-statReq =      [0x68,0x05,0x18,0x38,0x00,0x00,0x4d]
-cdpoll =      [0x68,0x03,0x18,0x01,0x72]
-bmForwPush =  [0xF0, 0x04, 0x68, 0x48, 0x00, 0xD4] 
-bmForwRel =   [0xF0, 0x04, 0x68, 0x48, 0x80, 0x54]
-bmForwPress = [0xF0, 0x04, 0x68, 0x48, 0x40, 0x94]
-yatourPoll=   [255, 4, 255, 2, 0, 6]
+scanTrackReq = [0x68, 0x05, 0x18, 0x38, 0x04, 0xFF, 0xFF]
+statReq =      [0x68, 0x05, 0x18,  0x38,0x00,0x00,0x4d]
+cdpoll =       [0x68, 0x03, 0x18,  0x01,0x72]
+bmForwPush =   [0xF0, 0x04, 0x68, 0x48, 0x00, 0xD4] 
+bmForwRel =    [0xF0, 0x04, 0x68, 0x48, 0x80, 0x54]
+bmForwPress =  [0xF0, 0x04, 0x68, 0x48, 0x40, 0x94]
+yatourPoll=    [255, 4, 255, 2, 0, 6]
 ibusbuff=[]
 ibusPos = 0
 
@@ -67,6 +69,10 @@ CD_STATUS_END_PLAYING = [0x07, 0x02]
 CD_STATUS_SCAN_FORWARD =  [0x03, 0x09]
 CD_STATUS_SCAN_BACKWARD = [0x04, 0x09]
 
+header1 = [0x68, 0x05, 0x18]
+header2 = [0x68, 0x04, 0x18]
+header3 = [0x68, 0x03, 0x18]
+header4 = [0xF0, 0x04, 0x68]
 class Ibus(serialConnection.SerialPort):
     cdNumber = 1
     trackNumber = 1
@@ -74,6 +80,7 @@ class Ibus(serialConnection.SerialPort):
     cdStatus = CD_STATUS_LOADING
     random = False
     intro = 0
+    lastTime = current_milli_time()
     def sendStatus(self):
         #compose status response
         message = [0x18,0x0a,0x68,0x39]
@@ -117,10 +124,9 @@ class Ibus(serialConnection.SerialPort):
     def checkSumInject(self, message, length):
         
         suma = message[0]
-        
-        for i in range(1,length-1):
+        for i in range(1,length):
             suma = suma ^ (message[i]) #xor
-            #print(hex(phoneLed[i]), hex(suma))
+            #print(hex(message[i]), hex(suma))
         return suma
     
     def sendIbus(self,message):
@@ -128,76 +134,16 @@ class Ibus(serialConnection.SerialPort):
             self.serialDev.write(bytes(message)) 
         else:
             print("Serial in NOT opened " + self.serialName)
+    
+    def sendIbusAndAddChecksum(self,message):
+        if hasattr(self, 'serialDev'):  
+            checksum = self.checkSumInject(message, len(message))
+            #add checksum at the end
+            message = message + [checksum]
+            self.serialDev.write(bytes(message)) 
+        else:
+            print("Serial in NOT opened " + self.serialName)
             
-            
-            
-    def receiveIbusMessages(self, bytesRead):
-        global ibusPos
-        global ibusbuff
-        if bytesRead >= 4:
-            length = ibusbuff[1]+2
-            if  length == bytesRead:
-                #if ibusbuff[2] == 0x18 :#or ibusbuff[2] == 0x68: #only messages to us
-                print("Only one message")
-                if self.checkSumCalculator(ibusbuff[0:bytesRead], bytesRead):
-                    #print('I read from ibus' + self.hexPrint(ibusbuff[0:bytesRead], bytesRead) + " length " + str(bytesRead))             
-                    #handle message in corrrect way
-                    self.handleIbusMessage(ibusbuff[0:bytesRead])
-                    ibusbuff[0:bytesRead] = [] #cleaning arrays
-                    ibusPos = ibusPos - bytesRead
-                else:
-                    print('I read from ibus ERROR'  + self.hexPrint(ibusbuff[0:bytesRead],bytesRead) + " length " + str(bytesRead))
-
-                    
-            else:#elif bytesRead > 8 :
-                print("Possible more messages. Bytes: " + str(bytesRead))
-                for i in range(bytesRead):
-                    if i >= 2: #adresat jest na 3 pozycji wiec trzeba miec dane
-                        buffLenght = ibusbuff[i-1]
-                        if buffLenght <= bytesRead and i + buffLenght <= bytesRead :
-                            if ibusbuff[i] == 0x18:# or ibusbuff[i] == 0x68: #only messages to us
-                                #print("i: " + str(i) + " " + str(ibusbuff[i-1]) + " " + str(bytesRead))
-                                if self.checkSumCalculator(ibusbuff[i-2:i+buffLenght], buffLenght+2): #whole length msg is msg[1] + 2
-                                    #print('I read from ibus' + self.hexPrint(ibusbuff[0:bytesRead], bytesRead) + " length " + str(bytesRead))
-                                    #handle message in corrrect way
-                                    self.handleIbusMessage(ibusbuff[i-2:i+buffLenght])
-                                    if i+buffLenght == ibusPos:
-                                        ibusPos = 0;
-                                        ibusbuff = []
-                                        break
-                                    else:    
-                                        print("cleaning Portion of list")
-                                        ibusPos  = ibusPos - 7
-                                        del ibusbuff[i-2:i+buffLenght]
-                                        return
-                                else:
-                                    if i+buffLenght == ibusPos:
-                                        ibusPos = 0;
-                                        ibusbuff = []
-                                        break
-                                    
-                    
-                                
-    def receive(self):
-        global ibusPos
-        global ibusbuff
-        n = self.serialDev.inWaiting()
-        if n != 0:
-
-            out = self.serialDev.read(n)
-            #out = map(ord,out)
-            ibusbuff.extend(out)
-            ibusPos = ibusPos + n
-            if ibusPos >= 64:
-                ibusPos = 0
-                ibusbuff = []
-            #print("Received" + self.hexPrint(ibusbuff,len(ibusbuff)))        
-            #if timeNow - lastTime > 5 :
-            #    ibusPos = 0
-            #    print "Timeout"
-                
-            #lastTime = timeNow
-            self.receiveIbusMessages(ibusPos)
             
     def handleIbusMessage(self,message):
         prefix = "Last handled msg: "
@@ -213,8 +159,8 @@ class Ibus(serialConnection.SerialPort):
             
         elif message == statReq:
             prefix = prefix + "staus/info request"
-            #self.sendStatus()
-            self.sendIbus(startPlayResp)
+            self.sendStatus()
+            #self.sendIbus(startPlayResp)
         elif message == stopPlayingReq:
             prefix = prefix + "stop play request"
             self.cdStatus = CD_STATUS_NOT_PLAYING
@@ -299,7 +245,7 @@ class Ibus(serialConnection.SerialPort):
         elif message == bmForwPress:
             print("Got message from bmForwPress")
         
-        time = current_milli_time()    
+        time = current_sec_time()    
         print(str(time)+ "   " + prefix + '  ' + self.hexPrint(message,len(message)) + " length: " + str(len(message)) )   
             
     def hexPrint(self, message, length):
@@ -308,7 +254,25 @@ class Ibus(serialConnection.SerialPort):
             temp[i]=hex((message[i]))
         return str(temp)
     
-    
+    def receiveIbusMessages(self, bytesRead):
+        global ibusPos
+        global ibusbuff
+        if ibusPos >= 7:
+            #Im interested only in messages to CD changer. With three length variants: 3,4,5
+            if ibusbuff[0:3] == header1 or ibusbuff[0:3] == header2 or ibusbuff[0:3] == header3 or ibusbuff[0:3] == header4:
+                print("Got message to CD changer")
+                lenght = ibusbuff[1]+2
+                #if self.checkSumCalculator(ibusbuff[0:lenght], lenght): #do we really need this now?
+                self.handleIbusMessage(ibusbuff[0:lenght])
+                    #removing message as it was handled
+                ibusbuff[0:lenght] = []
+                ibusPos = len(ibusbuff)
+
+            else:
+                #shift left
+                print("Cutting")
+                ibusbuff[0:bytesRead] = []
+                ibusPos = ibusPos - bytesRead 
     
     def receiveTest(self):
         global ibusPos
@@ -323,8 +287,27 @@ class Ibus(serialConnection.SerialPort):
                 if ibusPos >= 64:
                     ibusPos = 0
                     ibusbuff = []
+                
+                self.receiveIbusMessages(n)
+                print("Received " +str(ibusPos) + "  " + self.hexPrint(ibusbuff, len(ibusbuff))) 
+                
+                
+    def receiveOpt(self):
+        global ibusPos
+        global ibusbuff
 
-                self.receiveIbusMessages(ibusPos)
+
+        out = self.serialDev.read(3)
+        if out:
+            ibusbuff.extend(out)
+            ibusPos = ibusPos + 3
+            if ibusPos >= 64:
+                ibusPos = 0
+                ibusbuff = []
+            self.receiveIbusMessages(3)
+        else:
+            time.sleep(0.01)
+            #print("Received " +str(ibusPos) + "  " + self.hexPrint(ibusbuff, len(ibusbuff)))   
                 
                 
                 

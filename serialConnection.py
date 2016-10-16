@@ -13,13 +13,15 @@ class SerialPort:
                            parity=serial.PARITY_EVEN, 
                            stopbits=serial.STOPBITS_ONE,
                            bytesize=serial.EIGHTBITS,
-                           timeout = 1,
+                           timeout = None,
                            xonxoff = False,
                            rtscts = False,
-                           dsrdtr = False,
-                           writeTimeout = 2)
+                           dsrdtr = False
+                           )
         except SerialException as e:
             print (e)
+            
+        
         
             
         
