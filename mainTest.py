@@ -8,11 +8,9 @@ def main():
     print("Dziala!")
     
     ibusk = Ibus()
-    #ibusk.handleIbusMessage([0x1])
-    now = current_milli_time()
+
     ibusk.receiveTest()
-    then = current_milli_time()
-    print("time "+ str(then  - now))
+
 
 
                 

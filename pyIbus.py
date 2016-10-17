@@ -28,7 +28,7 @@ introModeReqTest =    "\x68\x05\x18\x38\x07\x01\x4b"
 
 scanTrackReqForwTest = "\x68\x05\x18\x38\x04\x00\x49"
 scanTrackReqBckTest =  "\x68\x05\x18\x38\x04\x01\x48"
-testMessages = scanTrackReqForwTest + bmForwPress + statReqTest+ scanTrackReqForwTest +scanTrackReqForwTest + statReqTest+ scanTrackReqForwTest+ scanTrackReqForwTest+scanTrackReqForwTest
+testMessages = statReqTest+yatourPollTest + yatourPollTest
 #announcement message
 announcementReq = [0x18,0x04,0xFF,0x02,0x01,0xE0]
 
@@ -41,22 +41,22 @@ stopPlayingResp= "\x18\x0a\x68\x39\x00\x02\x00\x01\x00\x01\x04\x45"
 pausePlayingReq = [0x68,0x05,0x18,0x38,0x02,0x00,0x4f]
 pasuePlayingResp = "\x18\x0a\x68\x39\x01\x0c\x00\x01\x00\x01\x04\x4a"
 startPlayReq =    [0x68,0x05,0x18,0x38,0x03,0x00,0x4e]
-cdChangeReq =     [0x68, 0x05, 0x18, 0x38, 0x06, 0xFF, 0xff]
+cdChangeReq =     [0x68, 0x05, 0x18, 0x38, 0x06, 0x01, 0x4a]
 trackChangeNextReq = [0x68,0x05,0x18,0x38,0x0a,0x00,0x47] #Changes track/song to next
 trackChangePrevReq = [0x68,0x05,0x18,0x38,0x0a,0x01,0x46] #Changes track/song to next
 endPlayingResp =  "\x18\x0a\x68\x39\x01\x0c\x00\x01\x00\x01\x04\x4a"
 
-randomModeReq = [0x68, 0x5, 0x18, 0x38, 0x08, 0xFF, 0xFF]
-introModeReq =  [0x68, 0x5, 0x18, 0x38, 0x07, 0xFF, 0xFF]
+randomModeReq = [0x68, 0x5, 0x18, 0x38, 0x08, 0x01, 0x44]
+introModeReq =  [0x68, 0x5, 0x18, 0x38, 0x07, 0x01, 0x4b]
 
-scanTrackReq = [0x68, 0x05, 0x18, 0x38, 0x04, 0xFF, 0xFF]
+scanTrackReq = [0x68, 0x05, 0x18, 0x38, 0x04, 0x01,0x48]
 statReq =      [0x68, 0x05, 0x18,  0x38,0x00,0x00,0x4d]
-cdpoll =       [0x68, 0x03, 0x18,  0x01,0x72]
+cdpoll =       [0x68, 0x03, 0x18,  0x01, 0x72]
 bmForwPush =   [0xF0, 0x04, 0x68, 0x48, 0x00, 0xD4] 
 bmForwRel =    [0xF0, 0x04, 0x68, 0x48, 0x80, 0x54]
 bmForwPress =  [0xF0, 0x04, 0x68, 0x48, 0x40, 0x94]
 yatourPoll=    [255, 4, 255, 2, 0, 6]
-ibusbuff=[]
+ibusbuff=[0 for i in range(64)]
 ibusPos = 0
 
 CD_STATUS_NOT_PLAYING = [0x00, 0x02]
@@ -73,6 +73,36 @@ header1 = [0x68, 0x05, 0x18]
 header2 = [0x68, 0x04, 0x18]
 header3 = [0x68, 0x03, 0x18]
 header4 = [0xF0, 0x04, 0x68]
+header5 = [255, 4, 255]
+
+yatourPoll2=    [255, 0, 255, 2, 0]
+stopPlayingReq2 =  [0x68,0x00,0x18,0x38,0x01,0x00]
+pausePlayingReq2 = [0x68,0x00,0x18,0x38,0x02,0x00]
+statReq2 =         [0x68,0x00,0x18,0x38,0x00,0x00]
+trackChangeNextReq2 = [0x68,0x00,0x18,0x38,0x0a,0x00]
+trackChangePrevReq2 = [0x68,0x05,0x18,0x38,0x0a,0x01]
+
+randomModeReq2 = [0x68, 0x0, 0x18, 0x38, 0x08]
+
+introModeReq2 =  [0x68, 0x0, 0x18, 0x38, 0x07]
+
+cdChangeReq2 =     [0x68, 0x00, 0x18, 0x38, 0x06]
+cdPollReq =        [0x68, 0x00, 0x18, 0x01]
+scanTrackReq2 = [0x68, 0x00, 0x18, 0x38, 0x04]
+
+msgList = [[stopPlayingReq2,6,0,0],
+           [pausePlayingReq2,6,0,0],
+           [statReq2,6,0,0],
+           [trackChangeNextReq2,6,0,0],
+           [trackChangePrevReq2,6,0,0],
+           [cdChangeReq2,5,0,0],
+           [randomModeReq2,5,0,0],
+           [introModeReq2,5,0,0],
+           [scanTrackReq2,5,0,0],
+           [yatourPoll2,5,0,0],
+           [cdPollReq,  4,0,0]]
+
+
 class Ibus(serialConnection.SerialPort):
     cdNumber = 1
     trackNumber = 1
@@ -102,9 +132,9 @@ class Ibus(serialConnection.SerialPort):
         
     #Timer to announce CD every 25-30 s
     def announceCallback(self):
-        if self.isAnnouncementNeeded:
-            self.sendIbus(announcementReq)
-            threading.Timer(25, self.announceCallback).start()
+        #if self.isAnnouncementNeeded:
+        self.sendIbus(announcementReq)
+        threading.Timer(25, self.announceCallback).start()
     
     def checkSumCalculator(self, message, length):
         
@@ -146,32 +176,34 @@ class Ibus(serialConnection.SerialPort):
             
             
     def handleIbusMessage(self,message):
+        global ibusPos
+        global ibusbuff
         prefix = "Last handled msg: "
       
-        if message == cdpoll:
+        if message == cdpoll[0:4]:
             prefix = prefix + "Radio poll req"
-            self.isAnnouncementNeeded = False
+            #self.isAnnouncementNeeded = False
             self.sendIbus(radioPollResp)
             
-        if message == yatourPoll:
-            prefix = prefix + "Poll req"
-            self.sendIbus(cdpoll)
+        if message == yatourPoll[0:5]:
+            prefix = prefix + "YATOUR Poll req"
+            #self.sendIbus(cdpoll)
             
-        elif message == statReq:
+        elif message == statReq[0:6]:
             prefix = prefix + "staus/info request"
             self.sendStatus()
             #self.sendIbus(startPlayResp)
-        elif message == stopPlayingReq:
+        elif message == stopPlayingReq[0:6]:
             prefix = prefix + "stop play request"
             self.cdStatus = CD_STATUS_NOT_PLAYING
             self.sendStatus()
             
-        elif message == pausePlayingReq:  
+        elif message == pausePlayingReq[0:6]:  
             prefix = prefix + "pause play request"
             self.cdStatus = CD_STATUS_PAUSE
             self.sendStatus()
             
-        elif message == startPlayReq:
+        elif message == startPlayReq[0:6]:
             prefix =prefix + "start play request"
             self.cdStatus = CD_STATUS_PLAYING
             self.sendStatus()
@@ -179,7 +211,10 @@ class Ibus(serialConnection.SerialPort):
             #here some of message prameters may vary so only static part is compared
         elif message[0:5] == cdChangeReq[0:5]:
             #extracting parameters
-            self.cdNumber = message[5]
+            if ibusbuff[ibusPos-1] > 0:
+                self.cdNumber = ibusbuff[0]
+            else:
+                self.cdNumber = 1;    
             prefix = prefix + "CD change request. Cd to load: " + str(self.cdNumber)
                 
             self.cdStatus = CD_STATUS_END_PLAYING;
@@ -187,7 +222,7 @@ class Ibus(serialConnection.SerialPort):
             self.cdStatus = CD_STATUS_PLAYING;
             self.sendStatus() 
             
-        elif message == trackChangePrevReq:
+        elif message == trackChangePrevReq[0:6]:
             self.trackNumber = (self.trackNumber - 1) % 60
             prefix = prefix + "Track previous request. Track: " + str(self.trackNumber)
             self.cdStatus = CD_STATUS_END_PLAYING;
@@ -195,7 +230,7 @@ class Ibus(serialConnection.SerialPort):
             self.cdStatus = CD_STATUS_PLAYING;
             self.sendStatus() 
            
-        elif message == trackChangeNextReq:
+        elif message == trackChangeNextReq[0:6]:
             self.trackNumber = (self.trackNumber + 1) % 60
             prefix = prefix + "Track next request. Track: " + str(self.trackNumber)
             self.cdStatus = CD_STATUS_END_PLAYING;
@@ -205,7 +240,7 @@ class Ibus(serialConnection.SerialPort):
          
         elif message[0:5] == randomModeReq[0:5]:
             
-            if message[5] == 0x01:
+            if ibusbuff[ibusPos-1] == 0x01:
                 
                 self.random = True
             else:
@@ -216,13 +251,13 @@ class Ibus(serialConnection.SerialPort):
         
         elif message[0:5] == introModeReq[0:5]:
             
-            if message[5] == 0x01:
+            if ibusbuff[ibusPos-1] == 0x01:
                 
                 self.intro = True
             else:
                 self.intro = False
         
-            prefix = prefix + "Intro mode: " + str(self.random)    
+            prefix = prefix + "Intro mode: " + str(self.intro)    
             self.sendStatus()        
            
         elif message[0:5] == scanTrackReq[0:5]:
@@ -259,7 +294,7 @@ class Ibus(serialConnection.SerialPort):
         global ibusbuff
         if ibusPos >= 7:
             #Im interested only in messages to CD changer. With three length variants: 3,4,5
-            if ibusbuff[0:3] == header1 or ibusbuff[0:3] == header2 or ibusbuff[0:3] == header3 or ibusbuff[0:3] == header4:
+            if ibusbuff[0:3] == header1 or ibusbuff[0:3] == header2 or ibusbuff[0:3] == header3 or ibusbuff[0:3] == header4 or ibusbuff[0:3] == header5:
                 print("Got message to CD changer")
                 lenght = ibusbuff[1]+2
                 #if self.checkSumCalculator(ibusbuff[0:lenght], lenght): #do we really need this now?
@@ -270,7 +305,7 @@ class Ibus(serialConnection.SerialPort):
 
             else:
                 #shift left
-                print("Cutting")
+                #print("Cutting " + str(bytesRead))
                 ibusbuff[0:bytesRead] = []
                 ibusPos = ibusPos - bytesRead 
     
@@ -279,36 +314,65 @@ class Ibus(serialConnection.SerialPort):
         global ibusbuff
         n = 1
         if n != 0:
-            for i in range(0,len(testMessages),n):
-                out = testMessages[i]
-                out = map(ord,out)
-                ibusbuff.extend(out)
-                ibusPos = ibusPos + n
+            for i in range(0,len(introModeReq)):
                 if ibusPos >= 64:
                     ibusPos = 0
-                    ibusbuff = []
                 
-                self.receiveIbusMessages(n)
-                print("Received " +str(ibusPos) + "  " + self.hexPrint(ibusbuff, len(ibusbuff))) 
-                
-                
-    def receiveOpt(self):
+                self.receiveIbusMessages2(introModeReq[i])
+                      
+         
+    def receive(self):
         global ibusPos
         global ibusbuff
 
+        n = self.serialDev.inWaiting()
+        if n != 0:
 
-        out = self.serialDev.read(3)
-        if out:
-            ibusbuff.extend(out)
-            ibusPos = ibusPos + 3
-            if ibusPos >= 64:
-                ibusPos = 0
-                ibusbuff = []
-            self.receiveIbusMessages(3)
-        else:
-            time.sleep(0.01)
+            out = self.serialDev.read(n)
+
+            for i in range(n):    
+                self.receiveIbusMessages2(out[i])
             #print("Received " +str(ibusPos) + "  " + self.hexPrint(ibusbuff, len(ibusbuff)))   
+        else:
+            time.sleep(0.01)   
+        
+    def receiveIbusMessages2(self, c):
+        global ibusPos
+        global ibusbuff
+        #print(str(hex(c)))
+        #msg[2] is current pos
+        #msg[0] is message
+        #msg[3] is crc
+        for msg in msgList:
+            if msg[2] == 1:
+                msg[0][1] =  c   
                 
+            msg[3] = msg[3] ^ c
+            
+            if msg[2] > 3 and msg[2] == msg[0][1] + 1:
+                if msg[3] == 0:
+                    self.handleIbusMessage(msg[0])
+                else:
+                    print("Wrong crc")
+                    
+                #reset 
+                for msgtmp in msgList:
+                    msgtmp[2] = 0
+                    msgtmp[3] = 0
+                    ibusPos = 0;
+                break
+            if msg[2] < msg[1] and msg[0][msg[2]] != c:
+                msg[2] = 0
+                msg[3] = 0
+                continue
+            
+            if msg[2] >= msg[1]:
+                ibusbuff[ibusPos] = c
+                ibusPos = ibusPos +1
+                
+            msg[2] = msg[2] +1 
+        
+            #print(str(msg))        
                 
                 
 import unittest
