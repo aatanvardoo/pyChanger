@@ -1,9 +1,11 @@
 import serial
 from serial.serialutil import SerialException
-import time
-
+from kodijson import Kodi
 class SerialPort:
+    
+    kodi = Kodi("http://192.168.10.1:8080/jsonrpc", "kodi", "kodi")
     def __init__(self):
+        print( self.kodi.JSONRPC.Ping())
         try:
             print("Trying to open USB")
             self.serialName = '/dev/ttyUSB0'
@@ -21,29 +23,5 @@ class SerialPort:
         except SerialException as e:
             print (e)
             
-        
-        
+
             
-        
-        
-class SerialPortTH(SerialPort):
-    def readTH(self, bytearr):
-        bytearr = bytearray(bytearr)
-        tempr = bytearr[3]<<8 | bytearr[2]
-        tempr = tempr / 10.0
-    
-        humidity = bytearr[5]<<8 | bytearr[4];
-        humidity = humidity /10.0
-        
-        return {'humidity':humidity, 'tempr':tempr}
-    
-    def readAllAtOnce(self):
-        if hasattr(self, 'serialDev'):
-            if(self.serialDev.isOpen() == True):
-                debug.DebugPrint(("Serial opened " + self.serialName))
-                self.serialDev.write('ABAA'.decode('hex'))
-                out = self.receiveWithTimout()
-                ret = self.readTH(out)
-                debug.DebugPrint(str(ret['humidity']) + " " + str(ret['tempr']))
-                
-                return {'humidity':ret['humidity'], 'tempr':ret['tempr']}

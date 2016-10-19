@@ -1,34 +1,12 @@
-from serialConnection import SerialPort
+
 import serialConnection
 import time
 import threading
-import uinput
-#test
-yatourPollTest =       "\xff\x04\xff\x02\x00\x06"
-statReqTest =          "\x68\x05\x18\x38\x00\x00\x4d"
-cdpollTest =           "\x68\x03\x18\x01\x72"
-stopPlayingReqTest =   "\x68\x05\x18\x38\x01\x00\x4c"
-pausePlayingReqTest =  "\x68\x05\x18\x38\x02\x00\x4f"
-startPlayReqTest    =  "\x68\x05\x18\x38\x03\x00\x4e"
-cdChangeReqTest =      "\x68\x05\x18\x38\x06\x01\x4a"
-cdPrevReqTest =        "\x68\x05\x18\x38\x0a\x01\x46"
-cdNextReqTest =        "\x68\x05\x18\x38\x0a\x00\x47"
-trackChangeReqTest =   "\x68\x04\x18\x38\x0a\x4D" #weryfy if that is neccesarryyyy!!!!!!!!!!!!
-bmForwPushTest =       "\xF0\x04\x68\x48\x00\xD4" 
-bmForwRelTest =        "\xF0\x04\x68\x48\x80\x54"
-bmForwPress =          "\xF0\x04\x68\x48\x40\x94"
+from kodijson import Kodi
+
 current_sec_time = lambda: int(round(time.time()))
 current_milli_time = lambda: int(round(time.time() * 1000))
-trackChangeNextReqTest = "\x68\x05\x18\x38\x0a\x00\x47" #Changes track/song to next
-trackChangePrevReqTest = "\x68\x05\x18\x38\x0a\x01\x46" #Changes track/song to next
 
-brakemsgReqTest =      "\x63\x10\x18\x38\x03\x01\x4a"
-randomModeReqTest =    "\x68\x05\x18\x38\x08\x01\x44"
-introModeReqTest =    "\x68\x05\x18\x38\x07\x01\x4b"
-
-scanTrackReqForwTest = "\x68\x05\x18\x38\x04\x00\x49"
-scanTrackReqBckTest =  "\x68\x05\x18\x38\x04\x01\x48"
-testMessages = statReqTest+yatourPollTest + yatourPollTest
 #announcement message
 announcementReq = [0x18,0x04,0xFF,0x02,0x01,0xE0]
 
@@ -37,14 +15,14 @@ announcementReq = [0x18,0x04,0xFF,0x02,0x01,0xE0]
 radioPollResp = [0x18,0x04,0xFF,0x02,0x00,0xE1]
 startPlayResp= [0x18,0x0a,0x68,0x39,0x02,0x09,0x00,0x01,0x00,0x01,0x04,0x4c]
 stopPlayingReq =  [0x68,0x05,0x18,0x38,0x01,0x00,0x4c]
-stopPlayingResp= "\x18\x0a\x68\x39\x00\x02\x00\x01\x00\x01\x04\x45"
+
 pausePlayingReq = [0x68,0x05,0x18,0x38,0x02,0x00,0x4f]
-pasuePlayingResp = "\x18\x0a\x68\x39\x01\x0c\x00\x01\x00\x01\x04\x4a"
+
 startPlayReq =    [0x68,0x05,0x18,0x38,0x03,0x00,0x4e]
 cdChangeReq =     [0x68, 0x05, 0x18, 0x38, 0x06, 0x01, 0x4a]
 trackChangeNextReq = [0x68,0x05,0x18,0x38,0x0a,0x00,0x47] #Changes track/song to next
 trackChangePrevReq = [0x68,0x05,0x18,0x38,0x0a,0x01,0x46] #Changes track/song to next
-endPlayingResp =  "\x18\x0a\x68\x39\x01\x0c\x00\x01\x00\x01\x04\x4a"
+
 
 randomModeReq = [0x68, 0x5, 0x18, 0x38, 0x08, 0x01, 0x44]
 introModeReq =  [0x68, 0x5, 0x18, 0x38, 0x07, 0x01, 0x4b]
@@ -56,6 +34,7 @@ bmForwPush =   [0xF0, 0x04, 0x68, 0x48, 0x00, 0xD4]
 bmForwRel =    [0xF0, 0x04, 0x68, 0x48, 0x80, 0x54]
 bmForwPress =  [0xF0, 0x04, 0x68, 0x48, 0x40, 0x94]
 yatourPoll=    [255, 4, 255, 2, 0, 6]
+
 ibusbuff=[0 for i in range(64)]
 ibusPos = 0
 
@@ -90,9 +69,9 @@ cdChangeReq2 =     [0x68, 0x00, 0x18, 0x38, 0x06]
 cdPollReq =        [0x68, 0x00, 0x18, 0x01]
 scanTrackReq2 = [0x68, 0x00, 0x18, 0x38, 0x04]
 
-msgList = [[stopPlayingReq2,6,0,0],
+msgList = [[statReq2,6,0,0],
+           [stopPlayingReq2,6,0,0],
            [pausePlayingReq2,6,0,0],
-           [statReq2,6,0,0],
            [trackChangeNextReq2,6,0,0],
            [trackChangePrevReq2,6,0,0],
            [cdChangeReq2,5,0,0],
@@ -107,10 +86,10 @@ class Ibus(serialConnection.SerialPort):
     cdNumber = 1
     trackNumber = 1
     isAnnouncementNeeded = False
-    cdStatus = CD_STATUS_LOADING
+    cdStatus = CD_STATUS_PLAYING
     random = False
     intro = 0
-    lastTime = current_milli_time()
+    
     def sendStatus(self):
         #compose status response
         message = [0x18,0x0a,0x68,0x39]
@@ -121,8 +100,9 @@ class Ibus(serialConnection.SerialPort):
         #is intro mode on off
         if self.intro:
             self.cdStatus[1] = self.cdStatus[1] | 0x10     
-        #compose message    
-        message = message + self.cdStatus + [0x00, 0x3F, 0x00] + [self.cdNumber, self.trackNumber] 
+        #compose message
+        tempTracknbr = (self.trackNumber % 10) | int(self.trackNumber / 10) << 4    
+        message = message + self.cdStatus + [0x00, 0x3F, 0x00] + [self.cdNumber, tempTracknbr] 
         checksum = self.checkSumInject(message, len(message))
         #add checksum at the end
         message = message + [checksum]
@@ -174,7 +154,11 @@ class Ibus(serialConnection.SerialPort):
         else:
             print("Serial in NOT opened " + self.serialName)
             
-            
+    def clearInput(self):
+        if hasattr(self, 'serialDev'):  
+            self.serialDev.flushInput()
+        else:
+            print("Serial in NOT opened " + self.serialName)       
     def handleIbusMessage(self,message):
         global ibusPos
         global ibusbuff
@@ -229,14 +213,17 @@ class Ibus(serialConnection.SerialPort):
             self.sendStatus()    
             self.cdStatus = CD_STATUS_PLAYING;
             self.sendStatus() 
+            self.kodi.Player.GoTo({"playerid":0, "to":self.trackNumber}) 
            
         elif message == trackChangeNextReq[0:6]:
             self.trackNumber = (self.trackNumber + 1) % 60
             prefix = prefix + "Track next request. Track: " + str(self.trackNumber)
-            self.cdStatus = CD_STATUS_END_PLAYING;
-            self.sendStatus()    
+            #self.cdStatus = CD_STATUS_END_PLAYING;
+            #self.sendStatus()   
+            self.kodi.Player.GoTo({"playerid":0, "to":self.trackNumber})   
             self.cdStatus = CD_STATUS_PLAYING;
-            self.sendStatus()               
+            self.sendStatus()
+       
          
         elif message[0:5] == randomModeReq[0:5]:
             
@@ -271,7 +258,7 @@ class Ibus(serialConnection.SerialPort):
                     
             prefix = prefix + "Scanning. It is not HANDLED"
             #is this really needed?     
-            #self.sendStatus()    
+            self.sendStatus()    
 
         elif message == bmForwPush:
             print("Got message from bmForwPush")
@@ -314,11 +301,11 @@ class Ibus(serialConnection.SerialPort):
         global ibusbuff
         n = 1
         if n != 0:
-            for i in range(0,len(introModeReq)):
+            for i in range(0,len(trackChangeNextReq)):
                 if ibusPos >= 64:
                     ibusPos = 0
                 
-                self.receiveIbusMessages2(introModeReq[i])
+                self.receiveIbusMessages2(trackChangeNextReq[i])
                       
          
     def receive(self):
