@@ -3,37 +3,13 @@ import serialConnection
 import time
 import threading
 from kodijson import Kodi
+import RPi.GPIO as GPIO
+from queue import Queue
+import pyMessages
 
 current_sec_time = lambda: int(round(time.time()))
 current_milli_time = lambda: int(round(time.time() * 1000))
 
-#announcement message
-announcementReq = [0x18,0x04,0xFF,0x02,0x01,0xE0]
-
-#info/status request
-
-radioPollResp = [0x18,0x04,0xFF,0x02,0x00,0xE1]
-startPlayResp= [0x18,0x0a,0x68,0x39,0x02,0x09,0x00,0x01,0x00,0x01,0x04,0x4c]
-stopPlayingReq =  [0x68,0x05,0x18,0x38,0x01,0x00,0x4c]
-
-pausePlayingReq = [0x68,0x05,0x18,0x38,0x02,0x00,0x4f]
-
-startPlayReq =    [0x68,0x05,0x18,0x38,0x03,0x00,0x4e]
-cdChangeReq =     [0x68, 0x05, 0x18, 0x38, 0x06, 0x01, 0x4a]
-trackChangeNextReq = [0x68,0x05,0x18,0x38,0x0a,0x00,0x47] #Changes track/song to next
-trackChangePrevReq = [0x68,0x05,0x18,0x38,0x0a,0x01,0x46] #Changes track/song to next
-
-
-randomModeReq = [0x68, 0x5, 0x18, 0x38, 0x08, 0x01, 0x44]
-introModeReq =  [0x68, 0x5, 0x18, 0x38, 0x07, 0x01, 0x4b]
-
-scanTrackReq = [0x68, 0x05, 0x18, 0x38, 0x04, 0x01,0x48]
-statReq =      [0x68, 0x05, 0x18,  0x38,0x00,0x00,0x4d]
-cdpoll =       [0x68, 0x03, 0x18,  0x01, 0x72]
-bmForwPush =   [0xF0, 0x04, 0x68, 0x48, 0x00, 0xD4] 
-bmForwRel =    [0xF0, 0x04, 0x68, 0x48, 0x80, 0x54]
-bmForwPress =  [0xF0, 0x04, 0x68, 0x48, 0x40, 0x94]
-yatourPoll=    [255, 4, 255, 2, 0, 6]
 
 ibusbuff=[0 for i in range(64)]
 ibusPos = 0
@@ -52,47 +28,34 @@ header1 = [0x68, 0x05, 0x18]
 header2 = [0x68, 0x04, 0x18]
 header3 = [0x68, 0x03, 0x18]
 header4 = [0xF0, 0x04, 0x68]
-header5 = [255, 4, 255]
 
-yatourPoll2=    [255, 0, 255, 2, 0]
-stopPlayingReq2 =  [0x68,0x00,0x18,0x38,0x01,0x00]
-pausePlayingReq2 = [0x68,0x00,0x18,0x38,0x02,0x00]
-statReq2 =         [0x68,0x00,0x18,0x38,0x00,0x00]
-trackChangeNextReq2 = [0x68,0x00,0x18,0x38,0x0a,0x00]
-trackChangePrevReq2 = [0x68,0x05,0x18,0x38,0x0a,0x01]
 
-randomModeReq2 = [0x68, 0x0, 0x18, 0x38, 0x08]
 
-introModeReq2 =  [0x68, 0x0, 0x18, 0x38, 0x07]
-
-cdChangeReq2 =     [0x68, 0x00, 0x18, 0x38, 0x06]
-cdPollReq =        [0x68, 0x00, 0x18, 0x01]
-scanTrackReq2 = [0x68, 0x00, 0x18, 0x38, 0x04]
-
-msgList = [[statReq2,6,0,0],
-           [stopPlayingReq2,6,0,0],
-           [pausePlayingReq2,6,0,0],
-           [trackChangeNextReq2,6,0,0],
-           [trackChangePrevReq2,6,0,0],
-           [cdChangeReq2,5,0,0],
-           [randomModeReq2,5,0,0],
-           [introModeReq2,5,0,0],
-           [scanTrackReq2,5,0,0],
-           [yatourPoll2,5,0,0],
-           [cdPollReq,  4,0,0]]
-
+sendQ = Queue()
 
 class Ibus(serialConnection.SerialPort):
-    cdNumber = 1
+    cdNumber = 1 #1-6
     trackNumber = 1
-    isAnnouncementNeeded = False
+    isAnnouncementNeeded = True
     cdStatus = CD_STATUS_PLAYING
     random = False
     intro = 0
-    
+    playlists=[]
+    numberOfPlaylist = 0 #[0:xx]
+    trakChanged = False
+    cdChanged = False
+    kodiTrPos = trackNumber - 1
+    kodiTrNumbers = 60 #dummy value
+    startPlay = False
+    stopPlay = False
+    debugFlag = False
+    CDCD = False
     def sendStatus(self):
         #compose status response
         message = [0x18,0x0a,0x68,0x39]
+        if self.CDCD == True:
+            self.CDCD =False
+            message[0] = 0x76
         #is random mode on/off
         if self.random:
             self.cdStatus[1] = self.cdStatus[1] | 0x20 
@@ -106,16 +69,48 @@ class Ibus(serialConnection.SerialPort):
         checksum = self.checkSumInject(message, len(message))
         #add checksum at the end
         message = message + [checksum]
-        print("Send status: " + self.hexPrint(message, len(message)))
-        self.sendIbus(message)
-        
+        #print("Send status: " + self.hexPrint(message, len(message)))
+        sendQ.put(message)
+      
         
     #Timer to announce CD every 25-30 s
     def announceCallback(self):
-        #if self.isAnnouncementNeeded:
-        self.sendIbus(announcementReq)
-        threading.Timer(25, self.announceCallback).start()
+        if self.isAnnouncementNeeded == True:
+            self.sendIbusAndAddChecksum(pyMessages.yatourPoll)
+        threading.Timer(10, self.announceCallback).start()
     
+    def IbusSendTask(self):
+        
+        #check if IBUS is clear
+        channel = GPIO.wait_for_edge(self.channel, GPIO.FALLING or GPIO.RISING, timeout=7)
+        if channel is None:
+            #for 5mil was no transmission. Can send  
+            if not sendQ.empty():
+                msg  = sendQ.get()
+                self.sendIbus(msg) #running func with arg
+                       
+        threading.Timer(0.05, self.IbusSendTask).start()
+        #Timer to announce CD every 25-30 s
+    def sendToKodi(self):
+        #if self.isAnnouncementNeeded:
+        if self.trakChanged == True:
+            self.playSong()
+            self.trakChanged = False
+            #print("Send to kodi")
+        elif self.cdChanged == True:
+            self.cdChanged = False
+            self.setPlaylist()
+        elif self.stopPlay == True:
+            self.stopPlay = False
+            #self.kodi.Player.Stop({"playerid":0})
+            
+        out = self.kodi.Player.GetProperties({"properties":["position"], "playerid":0 })
+        self.kodiTrPos = out['result']['position']
+        if self.kodiTrPos != self.trackNumber -1:
+            self.trackNumber = self.kodiTrPos + 1
+            self.sendStatus()
+        threading.Timer(0.6, self.sendToKodi).start()
+        
     def checkSumCalculator(self, message, length):
         
         suma = message[0]
@@ -141,7 +136,8 @@ class Ibus(serialConnection.SerialPort):
     
     def sendIbus(self,message):
         if hasattr(self, 'serialDev'):  
-            self.serialDev.write(bytes(message)) 
+            self.serialDev.write(bytes(message))
+            self.serialDev.flush() #waits untill all data is out
         else:
             print("Serial in NOT opened " + self.serialName)
     
@@ -150,82 +146,93 @@ class Ibus(serialConnection.SerialPort):
             checksum = self.checkSumInject(message, len(message))
             #add checksum at the end
             message = message + [checksum]
-            self.serialDev.write(bytes(message)) 
+            sendQ.put(message)
+            #self.serialDev.write(bytes(message)) 
         else:
             print("Serial in NOT opened " + self.serialName)
             
     def clearInput(self):
         if hasattr(self, 'serialDev'):  
             self.serialDev.flushInput()
+            self.serialDev.flushOutput()
         else:
             print("Serial in NOT opened " + self.serialName)       
     def handleIbusMessage(self,message):
         global ibusPos
         global ibusbuff
+        #now = current_milli_time()
         prefix = "Last handled msg: "
-      
-        if message == cdpoll[0:4]:
-            prefix = prefix + "Radio poll req"
-            #self.isAnnouncementNeeded = False
-            self.sendIbus(radioPollResp)
-            
-        if message == yatourPoll[0:5]:
-            prefix = prefix + "YATOUR Poll req"
-            #self.sendIbus(cdpoll)
-            
-        elif message == statReq[0:6]:
-            prefix = prefix + "staus/info request"
+        self.clearInput()
+        #time.sleep(0.005)
+        if message == pyMessages.statReq:
+            #prefix = prefix + "staus/info request"
             self.sendStatus()
-            #self.sendIbus(startPlayResp)
-        elif message == stopPlayingReq[0:6]:
+        elif message == pyMessages.cdPollReq:
+            self.isAnnouncementNeeded = False
+            self.sendIbusAndAddChecksum(pyMessages.radioPollResp)
+            
+        elif message == pyMessages.statReqCDCD:
+            self.CDCD= True    #do we really need this?
+            self.sendStatus()
+            
+        elif message == pyMessages.stopPlayingReq[0:6]:
             prefix = prefix + "stop play request"
             self.cdStatus = CD_STATUS_NOT_PLAYING
+            self.stopPlay = True
             self.sendStatus()
             
-        elif message == pausePlayingReq[0:6]:  
+        elif message == pyMessages.pausePlayingReq[0:6]:  
             prefix = prefix + "pause play request"
             self.cdStatus = CD_STATUS_PAUSE
+            self.stopPlay = True
             self.sendStatus()
             
-        elif message == startPlayReq[0:6]:
+        elif message == pyMessages.startPlayReq[0:6]:
             prefix =prefix + "start play request"
             self.cdStatus = CD_STATUS_PLAYING
+            self.trakChanged = True #trigger play
             self.sendStatus()
-            
             #here some of message prameters may vary so only static part is compared
-        elif message[0:5] == cdChangeReq[0:5]:
+        elif message[0:5] == pyMessages.cdChangeReq[0:5]:
             #extracting parameters
             if ibusbuff[ibusPos-1] > 0:
-                self.cdNumber = ibusbuff[0]
+                tempCd = ibusbuff[0]
             else:
-                self.cdNumber = 1;    
-            prefix = prefix + "CD change request. Cd to load: " + str(self.cdNumber)
-                
-            self.cdStatus = CD_STATUS_END_PLAYING;
-            self.sendStatus()    
-            self.cdStatus = CD_STATUS_PLAYING;
-            self.sendStatus() 
+                return
             
-        elif message == trackChangePrevReq[0:6]:
-            self.trackNumber = (self.trackNumber - 1) % 60
-            prefix = prefix + "Track previous request. Track: " + str(self.trackNumber)
-            self.cdStatus = CD_STATUS_END_PLAYING;
-            self.sendStatus()    
+            #if CD number is valid if no doesnt set anything
+            if tempCd <= self.numberOfPlaylist:
+                self.cdNumber = tempCd
+                self.trackNumber = 1
+            else:
+                return
+   
             self.cdStatus = CD_STATUS_PLAYING;
             self.sendStatus() 
-            self.kodi.Player.GoTo({"playerid":0, "to":self.trackNumber}) 
-           
-        elif message == trackChangeNextReq[0:6]:
-            self.trackNumber = (self.trackNumber + 1) % 60
+            self.cdChanged = True
+
+
+        elif message == pyMessages.trackChangePrevReq:
+            self.trackNumber = (self.trackNumber - 1) % self.kodiTrNumbers
+            prefix = prefix + "Track previous request. Track: " + str(self.trackNumber)
+            #self.cdStatus = CD_STATUS_END_PLAYING;
+            #self.sendStatus()    
+            self.cdStatus = CD_STATUS_PLAYING;
+            self.sendStatus() 
+            self.trakChanged = True 
+        elif message == pyMessages.trackChangeNextReq or message == pyMessages.oldtrackChangeNextReq:
+            self.trackNumber = (self.trackNumber + 1) % self.kodiTrNumbers
             prefix = prefix + "Track next request. Track: " + str(self.trackNumber)
+            #removing CD_STATUS_END_PLAYING. Radio was not playing music for too long. 
+            #Without END_PLAYING radio swithes instantly to next song
             #self.cdStatus = CD_STATUS_END_PLAYING;
             #self.sendStatus()   
-            self.kodi.Player.GoTo({"playerid":0, "to":self.trackNumber})   
+            #self.kodi.Player.GoTo({"playerid":0, "to":self.trackNumber})   
             self.cdStatus = CD_STATUS_PLAYING;
             self.sendStatus()
-       
+            self.trakChanged = True
          
-        elif message[0:5] == randomModeReq[0:5]:
+        elif message[0:5] == pyMessages.randomModeReq:
             
             if ibusbuff[ibusPos-1] == 0x01:
                 
@@ -236,7 +243,7 @@ class Ibus(serialConnection.SerialPort):
             prefix = prefix + "Random mode: " + str(self.random)    
             self.sendStatus()    
         
-        elif message[0:5] == introModeReq[0:5]:
+        elif message[0:5] == pyMessages.introModeReq:
             
             if ibusbuff[ibusPos-1] == 0x01:
                 
@@ -247,7 +254,7 @@ class Ibus(serialConnection.SerialPort):
             prefix = prefix + "Intro mode: " + str(self.intro)    
             self.sendStatus()        
            
-        elif message[0:5] == scanTrackReq[0:5]:
+        elif message[0:5] == pyMessages.scanTrackReq:
             
             if self.cdStatus == CD_STATUS_PLAYING:
                 #no scan if music is not playing
@@ -259,16 +266,9 @@ class Ibus(serialConnection.SerialPort):
             prefix = prefix + "Scanning. It is not HANDLED"
             #is this really needed?     
             self.sendStatus()    
-
-        elif message == bmForwPush:
-            print("Got message from bmForwPush")
-        elif message == bmForwRel:
-            print("Got message from bmForwRel")
-        elif message == bmForwPress:
-            print("Got message from bmForwPress")
         
-        time = current_sec_time()    
-        print(str(time)+ "   " + prefix + '  ' + self.hexPrint(message,len(message)) + " length: " + str(len(message)) )   
+        #time = current_sec_time()    
+        #self.printDbg(str(time)+ "   " + prefix + '  ' + self.hexPrint(message,len(message)) + " length: " + str(len(message)) + " last: " + str(current_milli_time()-now) )   
             
     def hexPrint(self, message, length):
         temp = [0 for i in range(length)]
@@ -281,7 +281,7 @@ class Ibus(serialConnection.SerialPort):
         global ibusbuff
         if ibusPos >= 7:
             #Im interested only in messages to CD changer. With three length variants: 3,4,5
-            if ibusbuff[0:3] == header1 or ibusbuff[0:3] == header2 or ibusbuff[0:3] == header3 or ibusbuff[0:3] == header4 or ibusbuff[0:3] == header5:
+            if ibusbuff[0:3] == header1 or ibusbuff[0:3] == header2 or ibusbuff[0:3] == header3:
                 print("Got message to CD changer")
                 lenght = ibusbuff[1]+2
                 #if self.checkSumCalculator(ibusbuff[0:lenght], lenght): #do we really need this now?
@@ -301,11 +301,11 @@ class Ibus(serialConnection.SerialPort):
         global ibusbuff
         n = 1
         if n != 0:
-            for i in range(0,len(trackChangeNextReq)):
+            for i in range(0,len(pyMessages.cdChangeReq)):
                 if ibusPos >= 64:
                     ibusPos = 0
                 
-                self.receiveIbusMessages2(trackChangeNextReq[i])
+                self.receiveIbusMessages2(pyMessages.cdChangeReq[i])
                       
          
     def receive(self):
@@ -319,9 +319,9 @@ class Ibus(serialConnection.SerialPort):
 
             for i in range(n):    
                 self.receiveIbusMessages2(out[i])
-            #print("Received " +str(ibusPos) + "  " + self.hexPrint(ibusbuff, len(ibusbuff)))   
+            #print("Received bytes: " + str(n))   
         else:
-            time.sleep(0.01)   
+            time.sleep(0.05)   
         
     def receiveIbusMessages2(self, c):
         global ibusPos
@@ -330,7 +330,7 @@ class Ibus(serialConnection.SerialPort):
         #msg[2] is current pos
         #msg[0] is message
         #msg[3] is crc
-        for msg in msgList:
+        for msg in pyMessages.msgList:
             if msg[2] == 1:
                 msg[0][1] =  c   
                 
@@ -338,12 +338,15 @@ class Ibus(serialConnection.SerialPort):
             
             if msg[2] > 3 and msg[2] == msg[0][1] + 1:
                 if msg[3] == 0:
+                    #now = current_milli_time()
                     self.handleIbusMessage(msg[0])
+                    #now = current_milli_time() - now
+                    #print("last: " + str(now))
                 else:
                     print("Wrong crc")
                     
                 #reset 
-                for msgtmp in msgList:
+                for msgtmp in pyMessages.msgList:
                     msgtmp[2] = 0
                     msgtmp[3] = 0
                     ibusPos = 0;
@@ -360,8 +363,38 @@ class Ibus(serialConnection.SerialPort):
             msg[2] = msg[2] +1 
         
             #print(str(msg))        
-                
-                
+    def initPlaylists(self):
+        out = self.kodi.Files.GetDirectory({"directory":"special://profile/playlists/music"}) 
+        self.numberOfPlaylist = out['result']['limits']['total']  
+           
+        self.playlists = out['result']['files']
+        for i in range(self.numberOfPlaylist):
+            print(self.kodi.AudioLibrary.Scan({"directory":self.playlists[i]['file']}))     
+        print(str(out))
+        
+    def setPlaylist(self):
+        print(str(self.kodi.Playlist.GetPlaylists()))
+        if self.cdNumber <= self.numberOfPlaylist and self.cdNumber > 0:
+            result = self.kodi.Playlist.Clear({"playlistid":0 }) #playlist 0 is audio playlist
+            print("Clear result: " + str(result))
+            result = self.kodi.Playlist.Add({"item":{"directory":self.playlists[self.cdNumber-1]['file']},"playlistid":0})
+            print("Add result: " + str(result))
+            out = self.kodi.Playlist.GetItems({"playlistid":0, "limits":{"end":1},"sort":{"order":"ascending","method":"dateadded"}})
+            print("PLaylist track limits: " + str(out['result']['limits']))
+            self.kodiTrNumbers = out['result']['limits']['total']+1 #total tracks in current Playlist
+            result = self.kodi.Player.Open({"item":{"playlistid":0},"options":{"repeat":"all"}})
+            print("Open result: " + str(result)+ " number of tracks " + str(self.kodiTrNumbers))
+        else:
+            print("ERROR cd number out of range! CD: " + str(self.cdNumber) + " playlists: " + str(self.numberOfPlaylist))
+                               
+    def playSong(self):
+        self.kodi.Player.GoTo({"playerid":0, "to":self.trackNumber-1})
+                                
+    
+    def printDbg(self, toPrint):
+        if self.debugFlag == True:
+            print(toPrint)
+                    
 import unittest
 
 class IbusUt(unittest.TestCase):
