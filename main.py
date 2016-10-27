@@ -29,12 +29,15 @@ def main():
     #print(str(ibusDev.kodi.Playlist.GetItems({ "properties": ["title", "album", "artist", "duration"], "playlistid": 0 })))
     
     ibusDev.IbusSendTask()
-    ibusDev.announceCallback()
-    ibusDev.sendToKodi()
+    #ibusDev.announceCallback()
+
 
     ibusDev.initPlaylists()
     ibusDev.setPlaylist()
     ibusDev.playSong()
+    
+    ibusDev.sendToKodi()
+    ibusDev.readKodi()
     
     ibusDev.sendIbusAndAddChecksum(phoneLedYellow)
     time.sleep(0.5)

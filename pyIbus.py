@@ -30,8 +30,10 @@ header3 = [0x68, 0x03, 0x18]
 header4 = [0xF0, 0x04, 0x68]
 
 
-
+#queue for Ibus send
 sendQ = Queue()
+#queue for kodi send
+sendKodiQ = Queue()
 
 class Ibus(serialConnection.SerialPort):
     cdNumber = 1 #1-6
@@ -44,12 +46,13 @@ class Ibus(serialConnection.SerialPort):
     numberOfPlaylist = 0 #[0:xx]
     trakChanged = False
     cdChanged = False
-    kodiTrPos = trackNumber - 1
     kodiTrNumbers = 60 #dummy value
     startPlay = False
     stopPlay = False
     debugFlag = False
     CDCD = False
+    percentage = 0
+    preDefPlaylist=["/media/pi/Adus/DiscoPolo", "/media/pi/Adus/Dance","/media/pi/Adus/Nowe"]
     def sendStatus(self):
         #compose status response
         message = [0x18,0x0a,0x68,0x39]
@@ -81,36 +84,38 @@ class Ibus(serialConnection.SerialPort):
     
     def IbusSendTask(self):
         
-        #check if IBUS is clear
-        channel = GPIO.wait_for_edge(self.channel, GPIO.FALLING or GPIO.RISING, timeout=7)
-        if channel is None:
-            #for 5mil was no transmission. Can send  
-            if not sendQ.empty():
-                msg  = sendQ.get()
+        if not sendQ.empty():
+            #check if IBUS is clear
+            channel = GPIO.wait_for_edge(self.channel, GPIO.FALLING or GPIO.RISING, timeout=7)
+            if channel is None:
+                #for 5mil was no transmission. Can send  
+                msg  = sendQ.get()#removed from here it consumes around 30us
                 self.sendIbus(msg) #running func with arg
-                       
+
         threading.Timer(0.05, self.IbusSendTask).start()
         #Timer to announce CD every 25-30 s
     def sendToKodi(self):
-        #if self.isAnnouncementNeeded:
-        if self.trakChanged == True:
-            self.playSong()
-            self.trakChanged = False
-            #print("Send to kodi")
-        elif self.cdChanged == True:
-            self.cdChanged = False
-            self.setPlaylist()
-        elif self.stopPlay == True:
-            self.stopPlay = False
-            #self.kodi.Player.Stop({"playerid":0})
-            
-        out = self.kodi.Player.GetProperties({"properties":["position"], "playerid":0 })
-        self.kodiTrPos = out['result']['position']
-        if self.kodiTrPos != self.trackNumber -1:
-            self.trackNumber = self.kodiTrPos + 1
-            self.sendStatus()
-        threading.Timer(0.6, self.sendToKodi).start()
         
+        if not sendKodiQ.empty():
+            item  = sendKodiQ.get()
+            func = item[0]
+            func()
+
+        threading.Timer(0.5, self.sendToKodi).start()  
+        
+    def readKodi(self):
+        out = self.kodi.Player.GetProperties({"properties":["position","percentage"], "playerid":0 })
+        currentPerc = out['result']['percentage']
+        currentTr = out['result']['position']
+        #if self.kodiTrPos != self.trackNumber -1:
+        if(currentPerc < self.percentage) and self.trackNumber != currentTr +1:
+            self.trackNumber = currentTr + 1
+            self.sendStatus()
+            
+        self.percentage = currentPerc
+ 
+        threading.Timer(2, self.readKodi).start()  
+         
     def checkSumCalculator(self, message, length):
         
         suma = message[0]
@@ -135,11 +140,9 @@ class Ibus(serialConnection.SerialPort):
         return suma
     
     def sendIbus(self,message):
-        if hasattr(self, 'serialDev'):  
-            self.serialDev.write(bytes(message))
-            self.serialDev.flush() #waits untill all data is out
-        else:
-            print("Serial in NOT opened " + self.serialName)
+        self.serialDev.write(bytes(message))
+        self.serialDev.flush() #waits untill all data is out
+
     
     def sendIbusAndAddChecksum(self,message):
         if hasattr(self, 'serialDev'):  
@@ -187,11 +190,11 @@ class Ibus(serialConnection.SerialPort):
             self.stopPlay = True
             self.sendStatus()
             
-        elif message == pyMessages.startPlayReq[0:6]:
+        elif message == pyMessages.startPlayReq:
             prefix =prefix + "start play request"
             self.cdStatus = CD_STATUS_PLAYING
-            self.trakChanged = True #trigger play
             self.sendStatus()
+            sendKodiQ.put((self.playSong,0))
             #here some of message prameters may vary so only static part is compared
         elif message[0:5] == pyMessages.cdChangeReq[0:5]:
             #extracting parameters
@@ -209,28 +212,34 @@ class Ibus(serialConnection.SerialPort):
    
             self.cdStatus = CD_STATUS_PLAYING;
             self.sendStatus() 
-            self.cdChanged = True
+            
+            sendKodiQ.put((self.setPlaylist,0))
 
 
-        elif message == pyMessages.trackChangePrevReq:
-            self.trackNumber = (self.trackNumber - 1) % self.kodiTrNumbers
+        elif message == pyMessages.trackChangePrevReq or message == pyMessages.oldtrackChangePrevReq:
+            
+            if self.trackNumber - 1 <  1:
+                self.trackNumber = self.kodiTrNumbers
+            else:
+                self.trackNumber  = self.trackNumber - 1
             prefix = prefix + "Track previous request. Track: " + str(self.trackNumber)
-            #self.cdStatus = CD_STATUS_END_PLAYING;
-            #self.sendStatus()    
+   
             self.cdStatus = CD_STATUS_PLAYING;
             self.sendStatus() 
-            self.trakChanged = True 
+            sendKodiQ.put((self.playSong,0))
+            
         elif message == pyMessages.trackChangeNextReq or message == pyMessages.oldtrackChangeNextReq:
-            self.trackNumber = (self.trackNumber + 1) % self.kodiTrNumbers
+            
+            if self.trackNumber + 1 >  self.kodiTrNumbers:
+                self.trackNumber = 1
+            else:
+                self.trackNumber  = self.trackNumber + 1
             prefix = prefix + "Track next request. Track: " + str(self.trackNumber)
-            #removing CD_STATUS_END_PLAYING. Radio was not playing music for too long. 
-            #Without END_PLAYING radio swithes instantly to next song
-            #self.cdStatus = CD_STATUS_END_PLAYING;
-            #self.sendStatus()   
-            #self.kodi.Player.GoTo({"playerid":0, "to":self.trackNumber})   
+
             self.cdStatus = CD_STATUS_PLAYING;
             self.sendStatus()
-            self.trakChanged = True
+            sendKodiQ.put((self.playSong,0))
+            #self.trakChanged = True
          
         elif message[0:5] == pyMessages.randomModeReq:
             
@@ -377,11 +386,13 @@ class Ibus(serialConnection.SerialPort):
         if self.cdNumber <= self.numberOfPlaylist and self.cdNumber > 0:
             result = self.kodi.Playlist.Clear({"playlistid":0 }) #playlist 0 is audio playlist
             print("Clear result: " + str(result))
-            result = self.kodi.Playlist.Add({"item":{"directory":self.playlists[self.cdNumber-1]['file']},"playlistid":0})
+            result = self.kodi.AudioLibrary.Scan({"directory":self.playlists[self.cdNumber-1]['file']})
+            print("SCAN result: " + str(result))
+            result = self.kodi.Playlist.Add({"item":{"directory":self.preDefPlaylist[self.cdNumber-1]},"playlistid":0})
             print("Add result: " + str(result))
             out = self.kodi.Playlist.GetItems({"playlistid":0, "limits":{"end":1},"sort":{"order":"ascending","method":"dateadded"}})
             print("PLaylist track limits: " + str(out['result']['limits']))
-            self.kodiTrNumbers = out['result']['limits']['total']+1 #total tracks in current Playlist
+            self.kodiTrNumbers = out['result']['limits']['total'] #total tracks in current Playlist
             result = self.kodi.Player.Open({"item":{"playlistid":0},"options":{"repeat":"all"}})
             print("Open result: " + str(result)+ " number of tracks " + str(self.kodiTrNumbers))
         else:
