@@ -2,6 +2,7 @@
 import serialConnection
 import time
 import threading
+from threading import Thread
 from kodijson import Kodi
 import RPi.GPIO as GPIO
 from queue import Queue
@@ -34,6 +35,8 @@ header4 = [0xF0, 0x04, 0x68]
 sendQ = Queue()
 #queue for kodi send
 sendKodiQ = Queue()
+#queue for incoming msg
+rcvKodiQ = Queue()
 
 class Ibus(serialConnection.SerialPort):
     cdNumber = 1 #1-6
@@ -52,6 +55,7 @@ class Ibus(serialConnection.SerialPort):
     debugFlag = False
     CDCD = False
     percentage = 0
+    recivedStatOK= False
     preDefPlaylist=["/media/pi/Adus/DiscoPolo", "/media/pi/Adus/Dance","/media/pi/Adus/Nowe"]
     def sendStatus(self):
         #compose status response
@@ -81,18 +85,36 @@ class Ibus(serialConnection.SerialPort):
         if self.isAnnouncementNeeded == True:
             self.sendIbusAndAddChecksum(pyMessages.yatourPoll)
         threading.Timer(10, self.announceCallback).start()
-    
+    # Define a function for the thread
+    def rcvTimeout(self, message):
+        count = 0
+        while count < 10:
+            time.sleep(0.1)
+            count += 1
+            if self.recivedStatOK:
+                return
+        print("I pUT message again")    
+        sendQ.put(message)
+
+          
     def IbusSendTask(self):
         
         if not sendQ.empty():
             #check if IBUS is clear
-            channel = GPIO.wait_for_edge(self.channel, GPIO.FALLING or GPIO.RISING, timeout=7)
+            channel = GPIO.wait_for_edge(self.channel, GPIO.FALLING or GPIO.RISING, timeout=5)
+            
             if channel is None:
-                #for 5mil was no transmission. Can send  
+                #GPIO.output(self.channel2, 1)
+                #time.sleep(0.003)
+                #GPIO.output(self.channel2, 0)
+                #channel = GPIO.wait_for_edge(self.channel, GPIO.FALLING or GPIO.RISING, timeout=3)
+                #if channel is None:
+                    #for 5mil was no transmission. Can send  
                 msg  = sendQ.get()#removed from here it consumes around 30us
                 self.sendIbus(msg) #running func with arg
-
-        threading.Timer(0.05, self.IbusSendTask).start()
+                  
+            #GPIO.output(self.channel2, 0)
+        threading.Timer(0.020, self.IbusSendTask).start()
         #Timer to announce CD every 25-30 s
     def sendToKodi(self):
         
@@ -101,7 +123,7 @@ class Ibus(serialConnection.SerialPort):
             func = item[0]
             func()
 
-        threading.Timer(0.5, self.sendToKodi).start()  
+        threading.Timer(0.2, self.sendToKodi).start()  
         
     def readKodi(self):
         out = self.kodi.Player.GetProperties({"properties":["position","percentage"], "playerid":0 })
@@ -140,8 +162,16 @@ class Ibus(serialConnection.SerialPort):
         return suma
     
     def sendIbus(self,message):
+        self.serialDev.flushOutput()
+        self.serialDev.flushInput()
         self.serialDev.write(bytes(message))
         self.serialDev.flush() #waits untill all data is out
+        #self.serialDev.flushInput()
+        if(message[0:4] == pyMessages.testStat):
+            rcvKodiQ.put(message)
+            self.recivedStatOK = False
+            thread = Thread(target = self.rcvTimeout, args = (message,))
+            thread.start()
 
     
     def sendIbusAndAddChecksum(self,message):
@@ -214,7 +244,7 @@ class Ibus(serialConnection.SerialPort):
             self.sendStatus() 
             
             sendKodiQ.put((self.setPlaylist,0))
-
+            
 
         elif message == pyMessages.trackChangePrevReq or message == pyMessages.oldtrackChangePrevReq:
             
@@ -274,7 +304,14 @@ class Ibus(serialConnection.SerialPort):
                     
             prefix = prefix + "Scanning. It is not HANDLED"
             #is this really needed?     
-            self.sendStatus()    
+            self.sendStatus()
+        elif message[0:4] ==  pyMessages.testStat:      
+            if not rcvKodiQ.empty():    
+                msgtemp = rcvKodiQ.get()
+                #composing all status msg without crs
+                message = message + ibusbuff[0:7]
+                if message == msgtemp[0:11]:
+                    self.recivedStatOK = True
         
         #time = current_sec_time()    
         #self.printDbg(str(time)+ "   " + prefix + '  ' + self.hexPrint(message,len(message)) + " length: " + str(len(message)) + " last: " + str(current_milli_time()-now) )   

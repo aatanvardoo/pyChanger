@@ -29,7 +29,7 @@ def main():
     #print(str(ibusDev.kodi.Playlist.GetItems({ "properties": ["title", "album", "artist", "duration"], "playlistid": 0 })))
     
     ibusDev.IbusSendTask()
-    #ibusDev.announceCallback()
+    ibusDev.announceCallback()
 
 
     ibusDev.initPlaylists()

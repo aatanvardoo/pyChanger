@@ -48,6 +48,8 @@ oldtrackChangeNextReq = [0x68,0x05,0x18,0x38,0x05,0x00]
 oldtrackChangePrevReq2 = [0x68,0x00,0x18,0x38,0x05,0x01]
 oldtrackChangePrevReq = [0x68,0x05,0x18,0x38,0x05,0x01]
 
+testStat =     [0x18, 0x0a, 0x68, 0x39]
+testStat2 =    [0x18, 0x00, 0x68, 0x39]
 msgList = [[statReq2,6,0,0],
            [statReqCDCD2,6,0,0],
            [stopPlayingReq2,6,0,0],
@@ -61,4 +63,5 @@ msgList = [[statReq2,6,0,0],
            [randomModeReq2,5,0,0],
            [introModeReq2,5,0,0],
            [scanTrackReq2,5,0,0],
+           [testStat2,  4,0,0],
            [cdPollReq,  4,0,0]]

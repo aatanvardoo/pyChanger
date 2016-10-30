@@ -14,6 +14,7 @@ class SerialPort:
         GPIO.setup(self.channel, GPIO.IN)
         GPIO.setup(self.channel2, GPIO.OUT)
         GPIO.output(self.channel2, 0)
+        print("Set 2 to 1")
         try:
             print("Trying to open USB")
             self.serialName = '/dev/ttyUSB0'
