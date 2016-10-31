@@ -24,19 +24,13 @@ def main():
     if opts.model == "e39":
         time.sleep(40) #we are giving time to setup everything before python is up
 
-    ibusDev = Ibus() 
+    ibusDev = Ibus(opts.model) 
 
     ibusDev.IbusSendTask()
     if opts.model == "e39-debug":
         ibusDev.announceCallback()
-
-
-    ibusDev.initPlaylists()
-    ibusDev.setPlaylist()
-    ibusDev.playSong()
     
     ibusDev.sendToKodi()
-    ibusDev.readKodi()
     
     ibusDev.sendIbusAndAddChecksum(phoneLedYellow)
     time.sleep(0.5)
