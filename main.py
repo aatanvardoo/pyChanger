@@ -2,7 +2,7 @@ from pyIbus import Ibus
 import time
 
 from kodijson import Kodi
-
+from optparse import OptionParser
 
 isPoolNeeded = True
 phoneLed1=[0xC8,0x04,0xF0,0x2B,0x54,0x43]
@@ -14,22 +14,21 @@ phoneLedYellow= [0xC8,0x04,0xF0,0x2B,0x04]
 
 def main():
 
-    print("Dziala!")
-  
-    #time.sleep(40) #we are giving time to setup everything before python is up
-    #kodi = Kodi("http://192.168.10.1:8080/jsonrpc", "kodi", "kodi")
-    #print( kodi.JSONRPC.Ping())
+    parser = OptionParser()
+    parser.add_option("-m", "--model", dest="model", help="set Your BMW model")
+    (opts, args) = parser.parse_args()
     
-    #print(str(kodi.Playlist.GetPlaylists()))
-    #print(str(kodi.Playlist.GetItems(playlistid=0)))
+    if opts.model is not None:
+        print("Model: " + opts.model)
     
-    #print(str(kodi.Player.Open({"item":{"playlistid":0},"options":{"repeat":"all"}})))
-    
+    if opts.model == "e39":
+        time.sleep(40) #we are giving time to setup everything before python is up
+
     ibusDev = Ibus() 
-    #print(str(ibusDev.kodi.Playlist.GetItems({ "properties": ["title", "album", "artist", "duration"], "playlistid": 0 })))
-    
+
     ibusDev.IbusSendTask()
-    ibusDev.announceCallback()
+    if opts.model == "e39-debug":
+        ibusDev.announceCallback()
 
 
     ibusDev.initPlaylists()

@@ -8,6 +8,7 @@ import RPi.GPIO as GPIO
 from queue import Queue
 import pyMessages
 
+
 current_sec_time = lambda: int(round(time.time()))
 current_milli_time = lambda: int(round(time.time() * 1000))
 
@@ -38,6 +39,32 @@ sendKodiQ = Queue()
 #queue for incoming msg
 rcvKodiQ = Queue()
 
+class myThread (Thread):
+    def __init__(self, threadID, message):
+        threading.Thread.__init__(self)
+        self.threadID = threadID
+        self.message = message
+        self.st = False
+    def run(self):
+        print("Starting " + str(self.threadID))
+        self.rcvTimeout(self.message)
+        print("Exiting " + str(self.threadID))
+        
+    def stop(self):
+        self.st = True
+        
+    def rcvTimeout(self, message):
+        count = 0
+        while count < 10 and self.st == False:
+            time.sleep(0.1)
+            count += 1
+        if self.st == False:
+            print("I'm sending message again")
+            while not rcvKodiQ.empty(): 
+                rcvKodiQ.get() #cleaning queue    
+                sendQ.put(message)
+
+
 class Ibus(serialConnection.SerialPort):
     cdNumber = 1 #1-6
     trackNumber = 1
@@ -55,7 +82,8 @@ class Ibus(serialConnection.SerialPort):
     debugFlag = False
     CDCD = False
     percentage = 0
-    recivedStatOK= False
+    playStatus = "Play"
+
     preDefPlaylist=["/media/pi/Adus/DiscoPolo", "/media/pi/Adus/Dance","/media/pi/Adus/Nowe"]
     def sendStatus(self):
         #compose status response
@@ -85,16 +113,6 @@ class Ibus(serialConnection.SerialPort):
         if self.isAnnouncementNeeded == True:
             self.sendIbusAndAddChecksum(pyMessages.yatourPoll)
         threading.Timer(10, self.announceCallback).start()
-    # Define a function for the thread
-    def rcvTimeout(self, message):
-        count = 0
-        while count < 10:
-            time.sleep(0.1)
-            count += 1
-            if self.recivedStatOK:
-                return
-        print("I pUT message again")    
-        sendQ.put(message)
 
           
     def IbusSendTask(self):
@@ -168,9 +186,8 @@ class Ibus(serialConnection.SerialPort):
         self.serialDev.flush() #waits untill all data is out
         #self.serialDev.flushInput()
         if(message[0:4] == pyMessages.testStat):
-            rcvKodiQ.put(message)
-            self.recivedStatOK = False
-            thread = Thread(target = self.rcvTimeout, args = (message,))
+            thread = myThread(1, message)
+            rcvKodiQ.put((message,thread))
             thread.start()
 
     
@@ -211,14 +228,14 @@ class Ibus(serialConnection.SerialPort):
         elif message == pyMessages.stopPlayingReq[0:6]:
             prefix = prefix + "stop play request"
             self.cdStatus = CD_STATUS_NOT_PLAYING
-            self.stopPlay = True
             self.sendStatus()
+            self.stopPlay()
             
         elif message == pyMessages.pausePlayingReq[0:6]:  
             prefix = prefix + "pause play request"
             self.cdStatus = CD_STATUS_PAUSE
-            self.stopPlay = True
             self.sendStatus()
+            self.stopPlay()
             
         elif message == pyMessages.startPlayReq:
             prefix =prefix + "start play request"
@@ -305,13 +322,18 @@ class Ibus(serialConnection.SerialPort):
             prefix = prefix + "Scanning. It is not HANDLED"
             #is this really needed?     
             self.sendStatus()
-        elif message[0:4] ==  pyMessages.testStat:      
+        elif message[0:4] ==  pyMessages.testStat:    
             if not rcvKodiQ.empty():    
-                msgtemp = rcvKodiQ.get()
+                qitem = rcvKodiQ.get()
+                msgtemp = qitem[0][0:11]
+                func = qitem[1]
                 #composing all status msg without crs
                 message = message + ibusbuff[0:7]
-                if message == msgtemp[0:11]:
-                    self.recivedStatOK = True
+                
+                if message == msgtemp:
+                    print("OKOK")
+                    #we got what we send. Time to stop watchdog thread
+                    func.stop()
         
         #time = current_sec_time()    
         #self.printDbg(str(time)+ "   " + prefix + '  ' + self.hexPrint(message,len(message)) + " length: " + str(len(message)) + " last: " + str(current_milli_time()-now) )   
@@ -437,7 +459,9 @@ class Ibus(serialConnection.SerialPort):
                                
     def playSong(self):
         self.kodi.Player.GoTo({"playerid":0, "to":self.trackNumber-1})
-                                
+                 
+    def stopPlay(self):
+        self.kodi.Player.PlayPause({"playerid":0})       
     
     def printDbg(self, toPrint):
         if self.debugFlag == True:
