@@ -3,11 +3,13 @@ from serialConnection import SerialPort
 import time
 import threading
 from threading import Thread
-from kodijson import Kodi
 import RPi.GPIO as GPIO
 from queue import Queue
 import pyMessages
 from pyKodi import ibusKodi
+
+import os
+
 current_sec_time = lambda: int(round(time.time()))
 current_milli_time = lambda: int(round(time.time() * 1000))
 
@@ -36,18 +38,17 @@ sendQ = Queue()
 #queue for kodi send
 sendKodiQ = Queue()
 #queue for incoming msg
-rcvKodiQ = Queue()
+rcvIbusQ = Queue()
 
 class myThread (Thread):
-    def __init__(self, threadID, message):
+    def __init__(self, threadID, message, debug):
         threading.Thread.__init__(self)
         self.threadID = threadID
         self.message = message
         self.st = False
+        self.debug = debug
     def run(self):
-        print("Starting " + str(self.threadID))
         self.rcvTimeout(self.message)
-        print("Exiting " + str(self.threadID))
         
     def stop(self):
         self.st = True
@@ -58,9 +59,10 @@ class myThread (Thread):
             time.sleep(0.1)
             count += 1
         if self.st == False:
-            print("I'm sending message again")
-            while not rcvKodiQ.empty(): 
-                rcvKodiQ.get() #cleaning queue    
+            if self.debug:
+                print("I'm sending status message again")
+            while not rcvIbusQ.empty(): 
+                rcvIbusQ.get() #cleaning queue    
                 sendQ.put(message)
 
 
@@ -71,18 +73,23 @@ class Ibus():
     cdStatus = CD_STATUS_PLAYING
     random = False
     intro = 0
-    kodiTrNumbers = 60 #dummy value
     debugFlag = False
     CDCD = False
-
-    def __init__(self, model):
+    statMsgCnt = 1 #just for start purpose
+    
+    def __init__(self, model, debug):
         self.model = model
+        self.debugFlag = debug
+        print("Debug logs are " + str(debug))
         #initialize kodi sub module
-        self.kodi = ibusKodi()
+        self.kodi = ibusKodi(debug)
         #initialize serial sub module
         self.com = SerialPort()
         self.initGpio()
         self.readKodi()
+        #self.watchdog() not neccesary Yet. will be used when re booting will be solved
+        self.sendToKodi()
+        self.initLeds()
         
     def sendStatus(self):
         #compose status response
@@ -103,17 +110,16 @@ class Ibus():
         checksum = self.checkSumInject(message, len(message))
         #add checksum at the end
         message = message + [checksum]
-        #print("Send status: " + self.hexPrint(message, len(message)))
+        
         sendQ.put(message)
       
         
-    #Timer to announce CD every 25-30 s
+    #Timer to announce CD every 10 s
     def announceCallback(self):
         if self.isAnnouncementNeeded == True:
             self.sendIbusAndAddChecksum(pyMessages.yatourPoll)
         threading.Timer(10, self.announceCallback).start()
 
-          
     def IbusSendTask(self):
         
         if not sendQ.empty():
@@ -121,18 +127,13 @@ class Ibus():
             channel = GPIO.wait_for_edge(self.channel, GPIO.FALLING or GPIO.RISING, timeout=5)
             
             if channel is None:
-                #GPIO.output(self.channel2, 1)
-                #time.sleep(0.003)
-                #GPIO.output(self.channel2, 0)
-                #channel = GPIO.wait_for_edge(self.channel, GPIO.FALLING or GPIO.RISING, timeout=3)
-                #if channel is None:
-                    #for 5mil was no transmission. Can send  
+                #for 5mil was no transmission. Can send  
                 msg  = sendQ.get()#removed from here it consumes around 30us
                 self.sendIbus(msg) #running func with arg
                   
-            #GPIO.output(self.channel2, 0)
         threading.Timer(0.020, self.IbusSendTask).start()
-        #Timer to announce CD every 25-30 s
+
+    #timer check if there is someting to send to kodi server 
     def sendToKodi(self):
         
         if not sendKodiQ.empty():
@@ -152,8 +153,23 @@ class Ibus():
             self.sendStatus()
             
         self.kodi.percentage = currentPerc
- 
-        threading.Timer(2, self.readKodi).start()      
+    
+        threading.Timer(2, self.readKodi).start()   
+        
+    #function once per minute checks if radio is alive. If not there is no pont to work.     
+    def watchdog(self):
+        #to be process instead?
+        if self.statMsgCnt == 0:    
+            self.sendIbusAndAddChecksum(pyMessages.phoneLedRed)
+            time.sleep(0.2)
+            self.sendIbusAndAddChecksum(pyMessages.phoneLedYellow)
+
+            os.system("sudo halt")
+        #clear cnt for next round    
+        self.statMsgCnt = 0
+        
+        threading.Timer(1000, self.watchdog).start()    
+           
     def checkSumCalculator(self, message, length):
         
         suma = message[0]
@@ -183,19 +199,18 @@ class Ibus():
         self.com.serialDev.write(bytes(message))
         self.com.serialDev.flush() #waits untill all data is out
         #self.serialDev.flushInput()
+        #if we send status msg ->add it to compare queue
         if(message[0:4] == pyMessages.testStat):
-            thread = myThread(1, message)
-            rcvKodiQ.put((message,thread))
+            thread = myThread(1, message, self.debugFlag)
+            rcvIbusQ.put((message,thread))
             thread.start()
 
-    
     def sendIbusAndAddChecksum(self,message):
         if hasattr(self.com, 'serialDev'):  
             checksum = self.checkSumInject(message, len(message))
             #add checksum at the end
             message = message + [checksum]
             sendQ.put(message)
-            #self.serialDev.write(bytes(message)) 
         else:
             print("Serial in NOT opened " + self.com.serialName)
             
@@ -208,12 +223,13 @@ class Ibus():
     def handleIbusMessage(self,message):
         global ibusPos
         global ibusbuff
-        #now = current_milli_time()
+
         prefix = "Last handled msg: "
         self.clearInput()
-        #time.sleep(0.005)
+
         if message == pyMessages.statReq:
             #prefix = prefix + "staus/info request"
+            self.statMsgCnt += 1
             self.sendStatus()
         elif message == pyMessages.cdPollReq:
             self.isAnnouncementNeeded = False
@@ -258,13 +274,14 @@ class Ibus():
             self.cdStatus = CD_STATUS_PLAYING;
             self.sendStatus() 
             
-            sendKodiQ.put((self.kodi.setPlaylist,0))
+            sendKodiQ.put((self.kodi.stopPlay, 0))
+            sendKodiQ.put((self.kodi.setPlaylist, 0))
             
 
         elif message == pyMessages.trackChangePrevReq or message == pyMessages.oldtrackChangePrevReq:
             
             if self.kodi.trackNumber - 1 <  1:
-                self.kodi.trackNumber = self.kodiTrNumbers
+                self.kodi.trackNumber = self.kodi.kodiTrNumbers
             else:
                 self.kodi.trackNumber  = self.kodi.trackNumber - 1
    
@@ -274,7 +291,7 @@ class Ibus():
             
         elif message == pyMessages.trackChangeNextReq or message == pyMessages.oldtrackChangeNextReq:
             
-            if self.kodi.trackNumber + 1 >  self.kodiTrNumbers:
+            if self.kodi.trackNumber + 1 >  self.kodi.kodiTrNumbers:
                 self.kodi.trackNumber = 1
             else:
                 self.kodi.trackNumber  = self.kodi.trackNumber + 1
@@ -282,7 +299,7 @@ class Ibus():
             self.cdStatus = CD_STATUS_PLAYING;
             self.sendStatus()
             sendKodiQ.put((self.kodi.playSong,0))
-            #self.trakChanged = True
+
          
         elif message[0:5] == pyMessages.randomModeReq:
             
@@ -318,47 +335,25 @@ class Ibus():
             prefix = prefix + "Scanning. It is not HANDLED"
             #is this really needed?     
             self.sendStatus()
+            
         elif message[0:4] ==  pyMessages.testStat:    
-            if not rcvKodiQ.empty():    
-                qitem = rcvKodiQ.get()
+            if not rcvIbusQ.empty():    
+                qitem = rcvIbusQ.get()
                 msgtemp = qitem[0][0:11]
                 func = qitem[1]
-                #composing all status msg without crs
+                #composing all status msg without crc
                 message = message + ibusbuff[0:7]
                 
                 if message == msgtemp:
-                    print("OKOK")
+                    self.dbgPrint("Send status OK")
                     #we got what we send. Time to stop watchdog thread
                     func.stop()
-        
-        #time = current_sec_time()    
-        #self.printDbg(str(time)+ "   " + prefix + '  ' + self.hexPrint(message,len(message)) + " length: " + str(len(message)) + " last: " + str(current_milli_time()-now) )   
             
     def hexPrint(self, message, length):
         temp = [0 for i in range(length)]
         for i in range(length):
             temp[i]=hex((message[i]))
         return str(temp)
-    
-    def receiveIbusMessages(self, bytesRead):
-        global ibusPos
-        global ibusbuff
-        if ibusPos >= 7:
-            #Im interested only in messages to CD changer. With three length variants: 3,4,5
-            if ibusbuff[0:3] == header1 or ibusbuff[0:3] == header2 or ibusbuff[0:3] == header3:
-                print("Got message to CD changer")
-                lenght = ibusbuff[1]+2
-                #if self.checkSumCalculator(ibusbuff[0:lenght], lenght): #do we really need this now?
-                self.handleIbusMessage(ibusbuff[0:lenght])
-                    #removing message as it was handled
-                ibusbuff[0:lenght] = []
-                ibusPos = len(ibusbuff)
-
-            else:
-                #shift left
-                #print("Cutting " + str(bytesRead))
-                ibusbuff[0:bytesRead] = []
-                ibusPos = ibusPos - bytesRead 
     
     def receiveTest(self):
         global ibusPos
@@ -402,10 +397,7 @@ class Ibus():
             
             if msg[2] > 3 and msg[2] == msg[0][1] + 1:
                 if msg[3] == 0:
-                    #now = current_milli_time()
                     self.handleIbusMessage(msg[0])
-                    #now = current_milli_time() - now
-                    #print("last: " + str(now))
                 else:
                     print("Wrong crc")
                     
@@ -429,12 +421,25 @@ class Ibus():
             #print(str(msg))        
                  
 
+    def initLeds(self):
+        self.sendIbusAndAddChecksum(pyMessages.phoneLedYellow)
+        time.sleep(0.5)
+        self.sendIbusAndAddChecksum(pyMessages.phoneLedRed)
+        time.sleep(0.5)
+        self.sendIbusAndAddChecksum(pyMessages.phoneLedGreen)
+        self.clearInput()
+        
     def initGpio(self):
         print("Initializing GPIO")
         GPIO.setmode(GPIO.BCM)
         GPIO.setup(self.channel, GPIO.IN)
         GPIO.setup(self.channel2, GPIO.OUT)
-        GPIO.output(self.channel2, 0)                
+        GPIO.output(self.channel2, 0)
+    
+    def dbgPrint(self, string):
+        if self.debugFlag:
+            print(string)
+             
 import unittest
 
 class IbusUt(unittest.TestCase):
